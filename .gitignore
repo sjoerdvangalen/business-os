@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+
+# Supabase local
+.supabase/
+supabase/.temp/
+
+# Deno
+.deno/
+
+# Editor
+.vscode/
+.idea/
