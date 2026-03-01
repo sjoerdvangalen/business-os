@@ -29,6 +29,14 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ```
 ~/business-os/
 ├── CLAUDE.md                          # This file
+├── .claude/commands/                  # Custom slash commands
+│   ├── onboard.md                     # /onboard CLIENT_CODE — full pipeline
+│   ├── research.md                    # /research CLIENT_CODE — deep company research
+│   ├── strategy.md                    # /strategy CLIENT_CODE — ICP + offers
+│   ├── copy.md                        # /copy CLIENT_CODE — email copy generation
+│   └── review.md                      # /review CLIENT_CODE — pipeline status + approval
+├── research/                          # Client research .md files (1 per client)
+│   └── FRTC.md, BETS.md, etc.
 ├── supabase/
 │   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push --linked`)
 │   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
@@ -41,6 +49,10 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 
 ## Supabase Schema (17 tables)
 - `clients` — Hub table, all data connects here via client_id
+  - `onboarding_form` JSONB — onboarding questionnaire data
+  - `research` JSONB — deep company research output
+  - `strategy` JSONB — GTM strategy (ICPs, offers, PMF)
+  - `onboarding_status` — pipeline stage tracking
 - `campaigns` — Synced from PlusVibe (23 active campaigns)
 - `email_accounts` — Synced from PlusVibe (4,386 accounts)
 - `warmup_snapshots` — Daily warmup health per account
@@ -48,11 +60,11 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - `contacts` — Leads (not yet synced from PlusVibe)
 - `contracts`, `invoices` — Financial data (imported from Airtable)
 - `meetings`, `opportunities` — CRM pipeline
-- `sequences` — Email steps within campaigns
+- `sequences` — Email steps within campaigns (also stores generated copy with `offer_variant`, `target_icp`, `copy_status`)
 - `email_messages` — Conversation history
 - `daily_kpis` — Aggregated daily metrics
 - `sync_log` — Tracks every sync operation
-- `agent_memory` — For future AI agents
+- `agent_memory` — AI agent context, research logs, review feedback
 
 ### Key Views
 - `v_campaign_performance` — Campaign health status (HEALTHY/WARNING/CRITICAL)
@@ -119,6 +131,22 @@ curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/sync-plus
   -H 'Authorization: Bearer <SERVICE_ROLE_KEY>' \
   -d '{}'
 ```
+
+## Client Research
+Research files for each client are stored in `research/CLIENT_CODE.md`.
+**When asked about a client, ALWAYS read `research/CLIENT_CODE.md` first for full context.**
+These files contain: company profile, PMF assessment, GTM strategy, ICPs, offers, and campaign copy.
+
+### Onboarding Pipeline
+Client onboarding status is tracked in `clients.onboarding_status`:
+`not_started` → `form_submitted` → `researched` → `strategy_done` → `copy_done` → `internal_review` → `client_review` → `approved` → `deployed`
+
+### Custom Commands
+- `/onboard CLIENT_CODE` — Full pipeline: form → research → strategy → copy
+- `/research CLIENT_CODE` — Deep company research (web search + onboarding form)
+- `/strategy CLIENT_CODE` — Generate ICPs + offer variants from research
+- `/copy CLIENT_CODE` — Generate cold email copy from approved offers
+- `/review CLIENT_CODE` — Show pipeline status and approve items
 
 ## Known Issues & Decisions
 - Service role key is hardcoded in pg_cron migration — needs vault/secrets solution
