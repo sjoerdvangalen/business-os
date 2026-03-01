@@ -7,6 +7,7 @@ Genereer een volledige Go-To-Market strategie op basis van client research.
 ## Stappen
 
 ### 1. Voorwaarden checken
+- **ALTIJD EERST** lees `~/business-os/knowledge/outbound-playbook.md` — dit is de basis voor alle strategie beslissingen
 - Query `clients` waar `client_code = '$ARGUMENTS'`
 - Check dat `research` JSONB niet leeg is — zo wel: "Run eerst `/research $ARGUMENTS`"
 - Lees `clients.research` en `clients.onboarding_form` voor volledige context
@@ -53,7 +54,7 @@ Maak 3 offer variants gericht op **Demand Generation**:
 - Urgency driver: waarom nu actie ondernemen?
 
 ### 5. ICP Definitie
-Definieer 1-3 Ideal Customer Profiles:
+Definieer 1-3 Ideal Customer Profiles. Volg het ICP & Objection Mapping framework uit de knowledge base.
 
 **Per ICP:**
 
@@ -69,14 +70,22 @@ Definieer 1-3 Ideal Customer Profiles:
 - Department
 - Seniority level (C-level, VP, Director, Manager)
 - Goals & pain points (wat houdt deze persoon 's nachts wakker?)
+- **Personal win** (niet alleen business ROI — wat krijgt deze persoon? Promotie? Minder stress? Held zijn?)
 - Buying process & decision criteria
 - Market trends die hun beslissing beïnvloeden
 
 **Qualification:**
 - Ideal signals (groene vlaggen — wanneer is iemand een goede match?)
+- **Buy signals** (uit knowledge base: hiring, funding, tech changes, news, etc.)
 - Disqualifiers (rode vlaggen — wanneer is het geen match?)
 - Buying triggers (wat maakt ze klaar om nu te kopen?)
 - Common objections (welke pushback verwacht je?)
+- **Objection preemption** (hoe adresseren we dit proactief in de copy?)
+
+**Targeting Keywords:**
+- About Us keywords (voor LinkedIn About filtering)
+- Job description keywords (voor responsibility-based targeting)
+- Signal indicators (wat scrapen we om te weten dat ze ready zijn?)
 
 ### 6. Opslaan
 - Update `clients.strategy` JSONB:

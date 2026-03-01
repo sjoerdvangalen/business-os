@@ -35,6 +35,8 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │   ├── strategy.md                    # /strategy CLIENT_CODE — ICP + offers
 │   ├── copy.md                        # /copy CLIENT_CODE — email copy generation
 │   └── review.md                      # /review CLIENT_CODE — pipeline status + approval
+├── knowledge/                         # Outbound knowledge base
+│   └── outbound-playbook.md           # Core playbook — ALL outbound decisions start here
 ├── research/                          # Client research .md files (1 per client)
 │   └── FRTC.md, BETS.md, etc.
 ├── supabase/
@@ -131,6 +133,24 @@ curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/sync-plus
   -H 'Authorization: Bearer <SERVICE_ROLE_KEY>' \
   -d '{}'
 ```
+
+## Outbound Knowledge Base
+**CRITICAL: For ALL outbound, cold email, targeting, copy, and GTM strategy decisions, ALWAYS read `knowledge/outbound-playbook.md` first.**
+
+This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird), Fivos Aresti, and the Cold Email v2 system. It contains:
+- Core philosophy: offer > targeting > signal > messaging > infrastructure
+- Signal-based outbound methodology
+- Targeting & list building frameworks (About Us hack, responsibility-based targeting)
+- The 10-minute research method (3 tiers)
+- Email copy framework (50-90 words, 3-pass cutting, QA scoring 0-100)
+- 5 campaign types (Custom Signal, Creative Ideas, Whole Offer, Fallback, Lead Magnet)
+- Follow-up sequence philosophy (4 emails, value prop rotation)
+- 25+ personalization line templates
+- Infrastructure rules (25 emails/day/mailbox, 50/50 Google/Microsoft, etc.)
+- ICP & objection mapping framework
+- Operational benchmarks and unit economics
+
+**Rule: Never generate outbound advice, copy, or strategy from generic knowledge. Always ground it in the playbook.**
 
 ## Client Research
 Research files for each client are stored in `research/CLIENT_CODE.md`.

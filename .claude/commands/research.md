@@ -7,6 +7,7 @@ Voer een uitgebreide company research uit voor een klant en sla de resultaten op
 ## Stappen
 
 ### 1. Client opzoeken
+- **ALTIJD EERST** lees `~/business-os/knowledge/outbound-playbook.md` — gebruik het research framework (10-min method, signal tiers) als leidraad
 - Query Supabase `clients` tabel waar `client_code = '$ARGUMENTS'` (hoofdletters)
 - Als niet gevonden: stop en meld de fout
 - Lees de bestaande velden: `name`, `domain`, `linkedin_url`, `onboarding_form`
@@ -58,6 +59,13 @@ Gebruik web search om het volgende te onderzoeken:
 - **Verdict**: YES / NO / UNCLEAR
 - **Reasoning**: Gebaseerd op: organische vraag, terugkerende klanten, tevredenheidssignalen, schaalbare economics
 - Gebruik de onboarding_form data + research bevindingen
+
+**Cold-Traffic Readiness (uit knowledge base):**
+- Is het offer simpel genoeg dat een koud contact het in 10 seconden begrijpt?
+- Zou iemand die het bedrijf niet kent zeggen "Yeah, I want that"?
+- **Cold-ready**: "We helpen B2B agencies 10 qualified appointments/month" = goed
+- **Niet cold-ready**: "We helpen bedrijven met marketing automation" = te vaag
+- Als niet cold-ready: documenteer dit als risico en suggereer offer reformulering in strategy stap
 
 ### 4. Opslaan
 - Update `clients.research` JSONB met gestructureerde data:

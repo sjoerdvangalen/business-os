@@ -7,6 +7,7 @@ Genereer cold email copy op basis van goedgekeurde offers en ICPs.
 ## Stappen
 
 ### 1. Voorwaarden checken
+- **ALTIJD EERST** lees `~/business-os/knowledge/outbound-playbook.md` — alle copy moet voldoen aan het framework hierin
 - Query `clients` waar `client_code = '$ARGUMENTS'`
 - Check dat `strategy` JSONB niet leeg is — zo wel: "Run eerst `/strategy $ARGUMENTS`"
 - Lees `clients.strategy` (offers + ICPs) en `clients.research` voor context
@@ -40,37 +41,50 @@ Focus op resultaat. Open met wat vergelijkbare bedrijven bereikt hebben.
 
 **Body:**
 - Max 3-5 zinnen na de hook
-- Structuur: Pain → Agitate → Solution (kort!)
+- Structuur: Situation Recognition → Value Prop + Proof → CTA (uit playbook)
 - Geen claims zonder bewijs
 - Specifiek, niet vaag
-- Totaal max 120 woorden (inclusief hook + CTA)
+- **Target: 50-90 woorden** (strict). Max 120 woorden alleen voor complexe offers.
+- Doorloop de 3-pass cutting process uit de playbook: fluff (20%) → compress (15%) → adjectives (10%)
 
 **CTA:**
 - Altijd een soft ask — NOOIT "book a call" of "schedule a meeting"
-- Goede CTAs: "Worth exploring?", "Open to learning more?", "Makes sense to chat?", "Relevant for you?"
-- Kies CTA type gebaseerd op offer: Direct / Interest / Value / Cliffhanger
+- Gebruik CTA categories uit de playbook:
+  - **Confirmation**: "Worth exploring?", "Is this still the case?"
+  - **Value-Exchange**: "...to share what's working in {{industry}}"
+  - **Resource Offer**: "Could I send you access?", "Want the 1-pager?"
+  - **Soft Ask**: "Worth a 2-minute look if I send it?"
+- **Test**: Kan de prospect antwoorden in 5 woorden of minder? Zo niet, simplify.
 
 **P.S. line (optioneel):**
 - Extra proof point of urgency
 - Of een persoonlijke touch
+- Of een company analogy ("A good way to think about us...")
 
 ### 4. Follow-up Sequences (per variant)
 
-**Follow-up 1 (3 dagen later):**
-- Kort (2-3 zinnen)
-- Refereer aan vorige email
-- Voeg nieuw angle toe (ander pain point of ander voordeel)
+Volg de sequence filosofie uit de playbook: email → follow-up in thread → net new email → follow-up in thread.
+Draai value props: save time → save money → make money.
+
+**Follow-up 1 (3 dagen later) — In-thread:**
+- Kort (2-3 zinnen), **geen nieuwe subject line** (threads in sequencer)
+- **Andere value proposition** dan email 1 (ze reageerden niet = die angle resoneerde niet)
+- Creative ideas variant werkt hier goed (3 bullet ideas)
 - Geen "just following up" of "checking in"
+- Lagere frictie CTA
 
-**Follow-up 2 (5 dagen later):**
+**Follow-up 2 (7 dagen later) — Nieuwe thread:**
+- **Nieuwe subject line** (verse inbox impressie)
 - Social proof of case study
+- Overweeg: drop alle AI personalisatie, ga voor whole-offer approach
 - "Bedrijf X had hetzelfde probleem en bereikte [resultaat]"
-- Kort en specifiek
+- Of refereer naar collega's: "Let me know if {{employee_1}} or {{employee_2}} would be better"
 
-**Follow-up 3 / Breakup (7 dagen later):**
-- Laatste email
-- Kort, vriendelijk, geeft ze een out
-- "Niet het juiste moment? Geen probleem. [Waarde-toevoeging]"
+**Follow-up 3 / Breakup (11 dagen later) — In-thread:**
+- Laatste email, kort en vriendelijk
+- Redirect naar andere persoon OF bied resources
+- "Niet het juiste moment? Geen probleem."
+- Creative optie: pull prospects matching THEIR ICP als value-add
 - Laat de deur open
 
 ### 5. Formatting Rules
