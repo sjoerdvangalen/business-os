@@ -7,13 +7,13 @@ const corsHeaders = {
 }
 
 /**
- * Sync Sequences — fetches email sequence steps from PlusVibe campaigns
+ * Sync Sequences — fetches email sequences from PlusVibe campaign list
  * and upserts to email_sequences table.
  *
- * For each campaign with a plusvibe_id, fetches the campaign details
- * which include sequence/step configuration.
+ * PlusVibe includes sequences[] in the campaign list-all response.
+ * Each sequence has: step, wait_time, variations[{variation, subject, body}]
  *
- * Runs daily via pg_cron.
+ * Runs every 15 min via pg_cron.
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -38,166 +38,112 @@ serve(async (req) => {
       )
     }
 
-    // 1. Get all campaigns with plusvibe_id
-    const { data: campaigns } = await supabase
+    // 1. Fetch all campaigns from PlusVibe (includes sequences)
+    const pvResponse = await fetch(
+      `https://api.plusvibe.ai/api/v1/campaign/list-all?workspace_id=${workspaceId}`,
+      { headers: { 'x-api-key': apiKey } }
+    )
+    if (!pvResponse.ok) throw new Error(`PlusVibe API error: ${pvResponse.status}`)
+
+    const pvCampaigns = await pvResponse.json()
+    console.log(`Fetched ${pvCampaigns.length} campaigns from PlusVibe`)
+
+    // 2. Map PlusVibe campaign IDs to our campaign UUIDs
+    const { data: ourCampaigns } = await supabase
       .from('campaigns')
-      .select('id, plusvibe_id, name, client_id')
+      .select('id, plusvibe_id')
       .not('plusvibe_id', 'is', null)
 
-    if (!campaigns || campaigns.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, message: 'No campaigns with PlusVibe IDs' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    const pvToUuid = new Map<string, string>()
+    for (const c of ourCampaigns || []) {
+      if (c.plusvibe_id) pvToUuid.set(c.plusvibe_id, c.id)
     }
 
-    console.log(`Fetching sequences for ${campaigns.length} campaigns`)
-
-    // 2. Load existing sequences for dedup
+    // 3. Load existing sequences for dedup
     const { data: existingSeqs } = await supabase
       .from('email_sequences')
-      .select('id, campaign_id, step_number')
+      .select('id, campaign_id, step_number, variation')
 
-    const seqKey = (campId: string, step: number) => `${campId}:${step}`
+    const seqKey = (campId: string, step: number, variation: string | null) =>
+      `${campId}:${step}:${variation || 'A'}`
     const existingMap = new Map<string, string>()
     for (const s of existingSeqs || []) {
       if (s.campaign_id && s.step_number !== null) {
-        existingMap.set(seqKey(s.campaign_id, s.step_number), s.id)
+        existingMap.set(seqKey(s.campaign_id, s.step_number, s.variation), s.id)
       }
     }
 
-    let created = 0, updated = 0, failed = 0
+    let created = 0, updated = 0, failed = 0, skipped = 0
 
-    // 3. Fetch sequence data per campaign from PlusVibe
-    for (const campaign of campaigns) {
-      try {
-        const pvResponse = await fetch(
-          `https://api.plusvibe.ai/api/v1/campaign/get?workspace_id=${workspaceId}&campaign_id=${campaign.plusvibe_id}`,
-          { headers: { 'x-api-key': apiKey } }
-        )
+    // 4. Process each campaign's sequences
+    for (const pvCamp of pvCampaigns) {
+      const campaignId = pvToUuid.get(pvCamp.id)
+      if (!campaignId) { skipped++; continue }
 
-        if (!pvResponse.ok) {
-          console.error(`PlusVibe error for campaign ${campaign.plusvibe_id}: ${pvResponse.status}`)
-          failed++
-          continue
-        }
+      const sequences = pvCamp.sequences || []
+      if (sequences.length === 0) continue
 
-        const pvData = await pvResponse.json()
-        const campaignData = pvData.data || pvData.campaign || pvData || {}
+      for (const seq of sequences) {
+        const stepNumber = seq.step || 1
+        const waitTime = seq.wait_time || 0
+        const variations = seq.variations || []
 
-        // PlusVibe stores sequences in different possible fields
-        const sequences = campaignData.sequences
-          || campaignData.steps
-          || campaignData.sequence_steps
-          || []
+        if (variations.length === 0) continue
 
-        if (!Array.isArray(sequences) || sequences.length === 0) {
-          console.log(`No sequences found for campaign ${campaign.name}`)
-          continue
-        }
+        for (const v of variations) {
+          const variationLabel = v.variation || 'A'
+          const key = seqKey(campaignId, stepNumber, variationLabel)
 
-        for (let i = 0; i < sequences.length; i++) {
-          const step = sequences[i]
-          const stepNumber = step.step_number || step.seq_number || step.order || (i + 1)
-
-          // Extract subject/body — PlusVibe might have variants
-          const variants = step.variants || step.variations || [step]
-          const mainVariant = variants[0] || step
-
-          const seqData: Record<string, unknown> = {
-            campaign_id: campaign.id,
+          const seqData = {
+            campaign_id: campaignId,
             step_number: stepNumber,
-            name: step.name || `Step ${stepNumber}`,
-            subject: mainVariant.subject || step.subject || '',
-            body: mainVariant.body || mainVariant.email_body || step.body || '',
-            variation: variants.length > 1 ? 'A' : null,
-            wait_time_days: step.wait_days || step.wait_time || step.delay_days || 0,
-            is_active: step.is_active !== false,
+            name: v.name || `Step ${stepNumber}${variations.length > 1 ? ` (${variationLabel})` : ''}`,
+            subject: v.subject || '',
+            body: v.body || '',
+            variation: variationLabel,
+            wait_time_days: waitTime,
+            is_active: true,
           }
 
-          // Handle A/B variants
-          if (variants.length > 1) {
-            // Store variant A as the main sequence
-            const existingId = existingMap.get(seqKey(campaign.id, stepNumber))
-            try {
-              if (existingId) {
-                const { error } = await supabase
-                  .from('email_sequences')
-                  .update(seqData)
-                  .eq('id', existingId)
-                if (error) { failed++; continue }
-                updated++
+          try {
+            const existingId = existingMap.get(key)
+            if (existingId) {
+              const { error } = await supabase
+                .from('email_sequences')
+                .update(seqData)
+                .eq('id', existingId)
+              if (error) {
+                console.error(`Update seq step ${stepNumber}${variationLabel}:`, error.message)
+                failed++
               } else {
-                const { error } = await supabase
-                  .from('email_sequences')
-                  .insert(seqData)
-                if (error) { failed++; continue }
+                updated++
+              }
+            } else {
+              const { error } = await supabase
+                .from('email_sequences')
+                .insert(seqData)
+              if (error) {
+                console.error(`Insert seq step ${stepNumber}${variationLabel}:`, error.message)
+                failed++
+              } else {
                 created++
               }
-
-              // Store variant B+ as separate rows with step_number + 0.1 offset
-              for (let v = 1; v < variants.length; v++) {
-                const variantStep = stepNumber + v * 0.1
-                const varData = {
-                  ...seqData,
-                  step_number: variantStep,
-                  variation: String.fromCharCode(65 + v), // B, C, D...
-                  subject: variants[v].subject || '',
-                  body: variants[v].body || variants[v].email_body || '',
-                }
-                const varExisting = existingMap.get(seqKey(campaign.id, variantStep))
-                if (varExisting) {
-                  await supabase.from('email_sequences').update(varData).eq('id', varExisting)
-                  updated++
-                } else {
-                  await supabase.from('email_sequences').insert(varData)
-                  created++
-                }
-              }
-            } catch (e) {
-              console.error(`Error for sequence step ${stepNumber}:`, (e as Error).message)
-              failed++
             }
-          } else {
-            // Single variant
-            const existingId = existingMap.get(seqKey(campaign.id, stepNumber))
-            try {
-              if (existingId) {
-                const { error } = await supabase
-                  .from('email_sequences')
-                  .update(seqData)
-                  .eq('id', existingId)
-                if (error) { failed++; continue }
-                updated++
-              } else {
-                const { error } = await supabase
-                  .from('email_sequences')
-                  .insert(seqData)
-                if (error) { failed++; continue }
-                created++
-              }
-            } catch (e) {
-              console.error(`Error for sequence step ${stepNumber}:`, (e as Error).message)
-              failed++
-            }
+          } catch (e) {
+            console.error(`Error seq step ${stepNumber}:`, (e as Error).message)
+            failed++
           }
         }
-      } catch (e) {
-        console.error(`Error fetching campaign ${campaign.plusvibe_id}:`, (e as Error).message)
-        failed++
       }
-
-      // Rate limit: max 5 req/sec
-      await new Promise(r => setTimeout(r, 250))
     }
 
-    // 4. Log to sync_log
+    // 5. Log to sync_log
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
       table_name: 'email_sequences',
       operation: 'full_sync',
-      records_processed: campaigns.length,
+      records_processed: pvCampaigns.length,
       records_created: created,
       records_updated: updated,
       records_failed: failed,
@@ -206,16 +152,10 @@ serve(async (req) => {
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
 
-    console.log(`Sequences: ${created} created, ${updated} updated, ${failed} failed`)
+    console.log(`Sequences: ${created} created, ${updated} updated, ${failed} failed, ${skipped} campaigns skipped`)
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        campaigns_processed: campaigns.length,
-        created,
-        updated,
-        failed,
-      }),
+      JSON.stringify({ success: true, campaigns: pvCampaigns.length, created, updated, failed, skipped }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
