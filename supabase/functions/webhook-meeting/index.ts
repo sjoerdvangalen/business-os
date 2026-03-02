@@ -1,0 +1,371 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+const PLUSVIBE_API_KEY = '3c35a344-bc945816-752aae0c-86acadbb'
+const PLUSVIBE_WORKSPACE = '68f8e5d7e13f67d591c4f0a8'
+
+serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  let supabase: any
+  try {
+    supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Supabase init failed', msg: (e as Error).message }), {
+      headers: { 'Content-Type': 'application/json' }, status: 500
+    })
+  }
+
+  try {
+    // STEP 1: Parse URL + body
+    const url = new URL(req.url)
+    const token = url.searchParams.get('token')
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Missing token' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400
+      })
+    }
+
+    const rawPayload = await req.json()
+
+    // STEP 2: Lookup integration
+    const { data: integration, error: intError } = await supabase
+      .from('client_integrations')
+      .select('id, client_id, integration_type, name, provider_config, is_active, webhook_count')
+      .eq('webhook_token', token)
+      .single()
+
+    if (intError || !integration) {
+      return new Response(JSON.stringify({ error: 'Invalid token', detail: intError?.message }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404
+      })
+    }
+
+    if (!integration.is_active) {
+      return new Response(JSON.stringify({ error: 'Integration disabled' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403
+      })
+    }
+
+    // Update stats (fire-and-forget)
+    supabase.from('client_integrations').update({
+      last_webhook_at: new Date().toISOString(),
+      webhook_count: (integration.webhook_count || 0) + 1,
+    }).eq('id', integration.id).then(() => {})
+
+    // STEP 3: Get client
+    const { data: client } = await supabase
+      .from('clients')
+      .select('id, name, client_code, slack_channel_id')
+      .eq('id', integration.client_id)
+      .single()
+
+    const clientCode = client?.client_code || 'UNKNOWN'
+
+    // STEP 4: Normalize payload
+    const normalized = normalizePayload(integration.integration_type, rawPayload)
+    if (!normalized) {
+      return new Response(JSON.stringify({ success: true, message: 'Event not handled' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // STEP 5: Dedup
+    if (normalized.bookingId && normalized.event === 'created') {
+      const { data: existing } = await supabase
+        .from('meetings')
+        .select('id')
+        .eq('provider_booking_id', normalized.bookingId)
+        .maybeSingle()
+
+      if (existing) {
+        return new Response(JSON.stringify({ success: true, message: 'Already exists' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
+    // STEP 6: Handle event
+    if (normalized.event === 'created') {
+      await handleCreated(supabase, integration, client, clientCode, normalized)
+    } else if (normalized.event === 'cancelled') {
+      await handleCancelled(supabase, integration, client, clientCode, normalized)
+    } else if (normalized.event === 'rescheduled') {
+      await handleRescheduled(supabase, integration, client, clientCode, normalized)
+    }
+
+    // Log
+    supabase.from('agent_memory').insert({
+      agent_id: 'webhook-meeting',
+      memory_type: 'calendar_event',
+      content: `[${integration.name}] ${normalized.event}: ${normalized.attendeeName} (${normalized.attendeeEmail})`,
+      metadata: {
+        integration_id: integration.id, integration_type: integration.integration_type,
+        client_code: clientCode, event: normalized.event,
+        booking_id: normalized.bookingId, attendee_email: normalized.attendeeEmail,
+      },
+    }).then(() => {})
+
+    return new Response(
+      JSON.stringify({ success: true, event: normalized.event, integration: integration.name }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
+  } catch (error) {
+    const msg = (error as Error).message || 'Unknown error'
+    console.error('FATAL:', msg)
+
+    if (supabase) {
+      supabase.from('agent_memory').insert({
+        agent_id: 'webhook-meeting',
+        memory_type: 'webhook_error',
+        content: `Error: ${msg}`,
+      }).then(() => {})
+    }
+
+    return new Response(
+      JSON.stringify({ success: false, error: msg }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+    )
+  }
+})
+
+// ============================================================
+// EVENT HANDLERS
+// ============================================================
+
+async function handleCreated(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
+  // Match contact
+  let contact: any = null
+  if (n.attendeeEmail) {
+    const { data } = await supabase
+      .from('contacts')
+      .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
+      .eq('email', n.attendeeEmail.toLowerCase())
+      .limit(1)
+      .maybeSingle()
+    contact = data
+  }
+
+  if (!contact && n.attendeeName && client?.id) {
+    const { data } = await supabase
+      .from('contacts')
+      .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
+      .eq('client_id', client.id)
+      .eq('full_name', n.attendeeName)
+      .limit(1)
+      .maybeSingle()
+    contact = data
+  }
+
+  // Update PlusVibe
+  if (contact?.plusvibe_campaign_id && contact?.email) {
+    await updatePlusVibeLead(contact.email, contact.plusvibe_campaign_id)
+  }
+  await updatePlusVibeByDomain(supabase, n.attendeeEmail)
+
+  // Update contact
+  if (contact) {
+    await supabase.from('contacts').update({
+      lead_status: 'meeting_booked', label: 'MEETING_BOOKED',
+    }).eq('id', contact.id)
+  }
+
+  // Create opportunity
+  const companyName = contact?.company || extractDomainName(n.attendeeEmail) || 'Unknown'
+  await supabase.from('opportunities').insert({
+    client_id: client?.id || null, contact_id: contact?.id || null,
+    campaign_id: contact?.campaign_id || null,
+    name: companyName, status: 'meeting_booked', source: 'cold_email',
+  })
+
+  // Create meeting
+  const { error: meetErr } = await supabase.from('meetings').insert({
+    client_id: client?.id || null,
+    contact_id: contact?.id || null,
+    integration_id: integration.id,
+    integration_type: integration.integration_type,
+    source: integration.integration_type,
+    name: n.title || `Meeting with ${n.attendeeName}`,
+    start_time: n.startTime, end_time: n.endTime,
+    booking_status: 'booked',
+    attendee_email: n.attendeeEmail, attendee_name: n.attendeeName,
+    location: n.location,
+    provider_booking_id: n.bookingId, provider_event_type: n.eventType,
+    calcom_booking_id: integration.integration_type === 'calcom' ? n.bookingId : null,
+    calcom_event_type: integration.integration_type === 'calcom' ? n.eventType : null,
+  })
+  if (meetErr) throw new Error(`Meeting insert: ${meetErr.message}`)
+
+  // Slack
+  await sendSlackAlert(supabase, client,
+    `📅 *Meeting Booked!* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Company:* ${companyName}\n` +
+    `*Type:* ${n.eventType || 'Meeting'}\n*When:* ${fmtDt(n.startTime)}\n` +
+    `*Location:* ${n.location || 'TBD'}\n` +
+    (contact ? `_Matched: ${contact.full_name || contact.email}_` : `_⚠️ No contact match_`)
+  )
+}
+
+async function handleCancelled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
+  if (n.bookingId) {
+    await supabase.from('meetings').update({
+      booking_status: 'cancelled',
+      review_notes: `Cancelled: ${n.cancellationReason || 'No reason'}`,
+    }).eq('provider_booking_id', n.bookingId)
+  }
+  await sendSlackAlert(supabase, client,
+    `❌ *Meeting Cancelled* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Was:* ${fmtDt(n.startTime)}`
+  )
+}
+
+async function handleRescheduled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
+  if (n.bookingId) {
+    await supabase.from('meetings').update({
+      start_time: n.startTime, end_time: n.endTime,
+      booking_status: 'booked', location: n.location,
+    }).eq('provider_booking_id', n.bookingId)
+  }
+  await sendSlackAlert(supabase, client,
+    `🔄 *Meeting Rescheduled* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*New:* ${fmtDt(n.startTime)}`
+  )
+}
+
+// ============================================================
+// NORMALIZERS
+// ============================================================
+interface NormalizedMeeting {
+  event: 'created' | 'cancelled' | 'rescheduled'
+  bookingId: string; title: string; eventType: string
+  startTime: string; endTime: string; location: string
+  attendeeEmail: string; attendeeName: string; attendeeTimezone: string
+  cancellationReason?: string
+}
+
+function normalizePayload(type: string, raw: any): NormalizedMeeting | null {
+  if (type === 'calcom') return normCalcom(raw)
+  if (type === 'calendly') return normCalendly(raw)
+  if (type === 'gohighlevel') return normGHL(raw)
+  return normGeneric(raw)
+}
+
+function normCalcom(raw: any): NormalizedMeeting | null {
+  const t = raw.triggerEvent || ''
+  const p = raw.payload || raw
+  const ev = t === 'BOOKING_CREATED' ? 'created' : t === 'BOOKING_CANCELLED' ? 'cancelled' : t === 'BOOKING_RESCHEDULED' ? 'rescheduled' : null
+  if (!ev) return null
+  const a = p.attendees?.[0] || {}
+  return { event: ev as any, bookingId: p.uid || p.bookingId || '', title: p.title || '',
+    eventType: p.type || p.eventType?.title || '', startTime: p.startTime || '', endTime: p.endTime || '',
+    location: p.location || p.metadata?.videoCallUrl || '',
+    attendeeEmail: (a.email || '').toLowerCase().trim(), attendeeName: a.name || '',
+    attendeeTimezone: a.timeZone || '', cancellationReason: p.cancellation?.reason }
+}
+
+function normCalendly(raw: any): NormalizedMeeting | null {
+  const e = raw.event || ''
+  const p = raw.payload || {}
+  const ev = e === 'invitee.created' ? 'created' : (e === 'invitee.canceled' || e === 'invitee.cancelled') ? 'cancelled' : null
+  if (!ev) return null
+  const se = p.scheduled_event || {}
+  return { event: ev as any, bookingId: p.uri || p.uuid || '', title: se.name || '',
+    eventType: se.event_type || '', startTime: se.start_time || '', endTime: se.end_time || '',
+    location: se.location?.join_url || se.location?.location || '',
+    attendeeEmail: (p.email || '').toLowerCase().trim(), attendeeName: p.name || '',
+    attendeeTimezone: p.timezone || '', cancellationReason: p.cancellation?.reason }
+}
+
+function normGHL(raw: any): NormalizedMeeting | null {
+  const t = raw.type || ''
+  const ev = (t === 'AppointmentCreate' || t === 'appointment.create') ? 'created'
+    : (t === 'AppointmentDelete' || t === 'appointment.delete') ? 'cancelled'
+    : (t === 'AppointmentUpdate' || t === 'appointment.update') ? 'rescheduled' : null
+  if (!ev) return null
+  const c = raw.contact || {}
+  return { event: ev as any, bookingId: raw.id || raw.appointmentId || '', title: raw.title || raw.calendarName || '',
+    eventType: raw.calendarName || '', startTime: raw.startTime || raw.start_time || '', endTime: raw.endTime || raw.end_time || '',
+    location: raw.address || raw.location || '',
+    attendeeEmail: (c.email || raw.email || '').toLowerCase().trim(),
+    attendeeName: c.name || (c.firstName ? `${c.firstName} ${c.lastName || ''}`.trim() : ''),
+    attendeeTimezone: c.timezone || '', cancellationReason: raw.cancellationReason }
+}
+
+function normGeneric(raw: any): NormalizedMeeting | null {
+  const em = raw.email || raw.attendee_email || raw.attendees?.[0]?.email || ''
+  if (!em) return null
+  return { event: 'created', bookingId: raw.id || raw.uid || '', title: raw.title || '',
+    eventType: raw.type || '', startTime: raw.start_time || raw.startTime || '', endTime: raw.end_time || raw.endTime || '',
+    location: raw.location || '', attendeeEmail: em.toLowerCase().trim(),
+    attendeeName: raw.name || raw.attendee_name || '', attendeeTimezone: '' }
+}
+
+// ============================================================
+// PLUSVIBE
+// ============================================================
+async function updatePlusVibeLead(email: string, campaignId: string) {
+  try {
+    await fetch('https://api.plusvibe.ai/api/v1/lead/data/update', {
+      method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: campaignId, email, variables: { label: 'MEETING_BOOKED' } }),
+    })
+    await fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
+      method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: campaignId, email, new_status: 'COMPLETED' }),
+    })
+  } catch (_) { /* non-critical */ }
+}
+
+async function updatePlusVibeByDomain(supabase: any, email: string) {
+  try {
+    const domain = email.split('@')[1]
+    if (!domain) return
+    const { data } = await supabase.from('contacts').select('email, plusvibe_campaign_id')
+      .like('email', `%@${domain}`).not('plusvibe_campaign_id', 'is', null).limit(50)
+    for (const dc of (data || [])) {
+      if (dc.email === email) continue
+      fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
+        method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: dc.plusvibe_campaign_id, email: dc.email, new_status: 'COMPLETED' }),
+      }).catch(() => {})
+    }
+  } catch (_) { /* skip */ }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function fmtDt(s: string): string {
+  if (!s) return 'unknown'
+  try { return new Date(s).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' }) }
+  catch { return s }
+}
+
+function extractDomainName(email: string): string {
+  if (!email?.includes('@')) return ''
+  return email.split('@')[1].split('.')[0]
+}
+
+async function sendSlackAlert(supabase: any, client: any, text: string) {
+  const url = Deno.env.get('SLACK_WEBHOOK_URL')
+  if (!url) {
+    supabase.from('agent_memory').insert({
+      agent_id: 'webhook-meeting', memory_type: 'slack_pending',
+      content: text, metadata: { client_code: client?.client_code },
+    }).then(() => {})
+    return
+  }
+  try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#vgg-alerts', text }) }) }
+  catch (_) { /* skip */ }
+}
