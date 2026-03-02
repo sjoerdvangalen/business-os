@@ -182,17 +182,25 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   }
 
   // Create opportunity
-  const companyName = contact?.company || extractDomainName(n.attendeeEmail) || 'Unknown'
-  await supabase.from('opportunities').insert({
-    client_id: client?.id || null, contact_id: contact?.id || null,
-    campaign_id: contact?.campaign_id || null,
-    name: companyName, status: 'meeting_booked', source: 'cold_email',
-  })
-
-  // Create meeting
-  const { error: meetErr } = await supabase.from('meetings').insert({
+  const companyName = contact?.company || extractDomainName(n.attendeeEmail) || n.attendeeName || 'Unknown'
+  const { data: opp, error: oppErr } = await supabase.from('opportunities').insert({
     client_id: client?.id || null,
     contact_id: contact?.id || null,
+    campaign_id: contact?.campaign_id || null,
+    name: companyName,
+    status: 'meeting_booked',
+    source: 'cold_email',
+  }).select('id').single()
+
+  if (oppErr) {
+    console.error('Opportunity insert failed:', oppErr.message)
+  }
+
+  // Create meeting (link to opportunity)
+  const { data: meeting, error: meetErr } = await supabase.from('meetings').insert({
+    client_id: client?.id || null,
+    contact_id: contact?.id || null,
+    opportunity_id: opp?.id || null,
     integration_id: integration.id,
     integration_type: integration.integration_type,
     source: integration.integration_type,
@@ -204,8 +212,15 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     provider_booking_id: n.bookingId, provider_event_type: n.eventType,
     calcom_booking_id: integration.integration_type === 'calcom' ? n.bookingId : null,
     calcom_event_type: integration.integration_type === 'calcom' ? n.eventType : null,
-  })
+  }).select('id').single()
   if (meetErr) throw new Error(`Meeting insert: ${meetErr.message}`)
+
+  // Link opportunity → meeting (reverse link)
+  if (opp?.id && meeting?.id) {
+    await supabase.from('opportunities').update({
+      meeting_id: meeting.id,
+    }).eq('id', opp.id)
+  }
 
   // Slack
   await sendSlackAlert(supabase, client,
@@ -213,6 +228,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Company:* ${companyName}\n` +
     `*Type:* ${n.eventType || 'Meeting'}\n*When:* ${fmtDt(n.startTime)}\n` +
     `*Location:* ${n.location || 'TBD'}\n` +
+    (opp ? `✅ _Opportunity created_\n` : `⚠️ _Opportunity failed_\n`) +
     (contact ? `_Matched: ${contact.full_name || contact.email}_` : `_⚠️ No contact match_`)
   )
 }
