@@ -10,7 +10,7 @@ const corsHeaders = {
  * Aggregate KPIs — daily aggregation of campaign metrics
  *
  * Runs daily at 05:00 UTC via pg_cron.
- * Pulls current campaign stats from PlusVibe and writes per-campaign daily_kpis rows.
+ * Pulls current campaign stats from PlusVibe and writes per-campaign kpis rows.
  * Also aggregates per-client totals.
  */
 serve(async (req) => {
@@ -87,7 +87,7 @@ serve(async (req) => {
 
       // Upsert by (date, campaign_id)
       const { data: existing } = await supabase
-        .from('daily_kpis')
+        .from('kpis')
         .select('id')
         .eq('date', dateStr)
         .eq('campaign_id', campInfo.id)
@@ -95,14 +95,14 @@ serve(async (req) => {
 
       if (existing) {
         const { error } = await supabase
-          .from('daily_kpis')
+          .from('kpis')
           .update(kpiData)
           .eq('id', existing.id)
         if (error) { failed++; console.error(`Update KPI failed:`, error.message) }
         else updated++
       } else {
         const { error } = await supabase
-          .from('daily_kpis')
+          .from('kpis')
           .insert(kpiData)
         if (error) { failed++; console.error(`Insert KPI failed:`, error.message) }
         else created++
@@ -111,7 +111,7 @@ serve(async (req) => {
 
     // Also create/update aggregated client-level KPI rows (for backward compat with existing view)
     const { data: clientCampaigns } = await supabase
-      .from('daily_kpis')
+      .from('kpis')
       .select('client_id, emails_sent, replies, bounces, positive_replies, interested_count, meeting_count')
       .eq('date', dateStr)
       .not('campaign_id', 'is', null)
@@ -150,7 +150,7 @@ serve(async (req) => {
 
       // Upsert by (date, client_id) where campaign_id is null
       const { data: existing } = await supabase
-        .from('daily_kpis')
+        .from('kpis')
         .select('id')
         .eq('date', dateStr)
         .eq('client_id', clientId)
@@ -158,9 +158,9 @@ serve(async (req) => {
         .single()
 
       if (existing) {
-        await supabase.from('daily_kpis').update(clientKpi).eq('id', existing.id)
+        await supabase.from('kpis').update(clientKpi).eq('id', existing.id)
       } else {
-        await supabase.from('daily_kpis').insert(clientKpi)
+        await supabase.from('kpis').insert(clientKpi)
       }
     }
 
@@ -168,7 +168,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'daily_kpis',
+      table_name: 'kpis',
       operation: 'aggregate',
       records_processed: created + updated + failed,
       records_created: created,
@@ -188,7 +188,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'daily_kpis',
+      table_name: 'kpis',
       operation: 'aggregate',
       records_failed: 1,
       error_message: (error as Error).message,
