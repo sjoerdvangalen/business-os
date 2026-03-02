@@ -181,19 +181,46 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     }).eq('id', contact.id)
   }
 
-  // Create opportunity
+  // Find or create opportunity
   const companyName = contact?.company || extractDomainName(n.attendeeEmail) || n.attendeeName || 'Unknown'
-  const { data: opp, error: oppErr } = await supabase.from('opportunities').insert({
-    client_id: client?.id || null,
-    contact_id: contact?.id || null,
-    campaign_id: contact?.campaign_id || null,
-    name: companyName,
-    status: 'meeting_booked',
-    source: 'cold_email',
-  }).select('id').single()
+  let opp: any = null
+  let oppIsNew = false
 
-  if (oppErr) {
-    console.error('Opportunity insert failed:', oppErr.message)
+  // Check existing: match on contact_id + client_id (same person, same client = same deal)
+  if (contact?.id && client?.id) {
+    const { data: existing } = await supabase.from('opportunities')
+      .select('id, status')
+      .eq('contact_id', contact.id)
+      .eq('client_id', client.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    opp = existing
+  }
+
+  if (opp) {
+    // Update existing opportunity
+    await supabase.from('opportunities').update({
+      status: 'meeting_booked',
+    }).eq('id', opp.id)
+    console.log(`Opportunity updated: ${opp.id} → meeting_booked`)
+  } else {
+    // Create new opportunity
+    const { data: newOpp, error: oppErr } = await supabase.from('opportunities').insert({
+      client_id: client?.id || null,
+      contact_id: contact?.id || null,
+      campaign_id: contact?.campaign_id || null,
+      name: companyName,
+      status: 'meeting_booked',
+      source: 'cold_email',
+    }).select('id').single()
+
+    if (oppErr) {
+      console.error('Opportunity insert failed:', oppErr.message)
+    } else {
+      opp = newOpp
+      oppIsNew = true
+    }
   }
 
   // Create meeting (link to opportunity)
@@ -215,7 +242,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   }).select('id').single()
   if (meetErr) throw new Error(`Meeting insert: ${meetErr.message}`)
 
-  // Link opportunity → meeting (reverse link)
+  // Link opportunity → meeting (update to latest meeting)
   if (opp?.id && meeting?.id) {
     await supabase.from('opportunities').update({
       meeting_id: meeting.id,
@@ -223,12 +250,13 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   }
 
   // Slack
+  const oppLabel = opp ? (oppIsNew ? '✅ _New opportunity_' : '🔄 _Existing opportunity updated_') : '⚠️ _Opportunity failed_'
   await sendSlackAlert(supabase, client,
     `📅 *Meeting Booked!* [${clientCode}]\n*Via:* ${integration.name}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Company:* ${companyName}\n` +
     `*Type:* ${n.eventType || 'Meeting'}\n*When:* ${fmtDt(n.startTime)}\n` +
     `*Location:* ${n.location || 'TBD'}\n` +
-    (opp ? `✅ _Opportunity created_\n` : `⚠️ _Opportunity failed_\n`) +
+    `${oppLabel}\n` +
     (contact ? `_Matched: ${contact.full_name || contact.email}_` : `_⚠️ No contact match_`)
   )
 }
