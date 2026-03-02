@@ -6,6 +6,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+/**
+ * Sync PlusVibe Warmup — updates email_inboxes with latest warmup rates
+ *
+ * Fetches workspace warmup stats from PlusVibe and writes
+ * latest_inbox_rate, latest_spam_rate, warmup_last_checked
+ * directly to the email_inboxes table.
+ *
+ * Runs daily via pg_cron.
+ */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -29,15 +38,10 @@ serve(async (req) => {
       )
     }
 
-    // Default: yesterday's data (today might be incomplete)
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    const defaultDate = yesterday.toISOString().split('T')[0]
-    const startDate = body.start_date || defaultDate
-    const endDate = body.end_date || startDate
+    // Fetch 7-day warmup stats for inbox rate calculation
+    const endDate = new Date().toISOString().split('T')[0]
+    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-    // Fetch workspace-level warmup stats from PlusVibe
-    // Response format: { status, emailAcc: { chart_data: [{date, dt, sent, inbox, spam, promotion}], email_domain_detail: {...} } }
     const pvResponse = await fetch(
       `https://api.plusvibe.ai/api/v1/account/warmup-stats?workspace_id=${workspaceId}&start_date=${startDate}&end_date=${endDate}`,
       { headers: { 'x-api-key': apiKey } }
@@ -46,78 +50,84 @@ serve(async (req) => {
 
     const pvData = await pvResponse.json()
     const emailAcc = pvData.emailAcc || pvData.data || {}
-    const chartData = emailAcc.chart_data || []
     const domainDetail = emailAcc.email_domain_detail || {}
 
-    console.log(`Fetched warmup data: ${chartData.length} days, ${Object.keys(domainDetail).length} domains`)
+    console.log(`Fetched warmup data: ${Object.keys(domainDetail).length} domains`)
 
-    // We'll store daily aggregate snapshots per email_account where possible.
-    // First, load all email_accounts so we can create aggregate snapshots.
-    const { data: emailAccounts } = await supabase
-      .from('email_accounts')
+    // Load all email inboxes
+    const { data: inboxes } = await supabase
+      .from('email_inboxes')
       .select('id, email')
 
-    // Build a domain → [account_ids] map for distributing domain-level stats
-    const domainAccountsMap = new Map<string, string[]>()
-    for (const ea of emailAccounts || []) {
-      const domain = ea.email?.split('@')[1]?.toLowerCase()
-      if (domain) {
-        const existing = domainAccountsMap.get(domain) || []
-        existing.push(ea.id)
-        domainAccountsMap.set(domain, existing)
-      }
+    if (!inboxes || inboxes.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: 'No email inboxes to update' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
-    let created = 0, updated = 0, failed = 0
+    // Build domain → inbox rate map from PlusVibe data
+    const domainRates = new Map<string, number>()
+    for (const [domain, inboxPct] of Object.entries(domainDetail)) {
+      domainRates.set(domain.toLowerCase(), Number(inboxPct) || 0)
+    }
 
-    // For each day in chart_data, create per-domain warmup snapshots
+    // Calculate aggregate inbox/spam from chart_data
+    const chartData = emailAcc.chart_data || []
+    let totalInbox = 0, totalSpam = 0, totalSent = 0
     for (const day of chartData) {
-      const date = day.dt // YYYY-MM-DD format
-      const totalSent = day.sent || 0
-      const totalInbox = day.inbox || 0
-      const totalSpam = day.spam || 0
-      const totalPromotion = day.promotion || 0
+      totalInbox += day.inbox || 0
+      totalSpam += day.spam || 0
+      totalSent += (day.inbox || 0) + (day.spam || 0) + (day.promotion || 0)
+    }
 
-      // Distribute across domains proportionally using domain_detail inbox rates
-      for (const [domain, inboxPct] of Object.entries(domainDetail)) {
-        const accountIds = domainAccountsMap.get(domain.toLowerCase())
-        if (!accountIds || accountIds.length === 0) continue
+    const now = new Date().toISOString()
+    let updated = 0, failed = 0
 
-        // Estimate per-account: divide domain totals evenly among accounts on that domain
-        const accountCount = accountIds.length
-        // We don't have per-domain send counts, so estimate using proportion
-        const domainShare = 1 / Object.keys(domainDetail).length
-        const estSent = Math.round(totalSent * domainShare / accountCount)
-        const estInbox = Math.round(totalInbox * domainShare / accountCount)
-        const estSpam = Math.round(totalSpam * domainShare / accountCount)
-        const estPromotion = Math.round(totalPromotion * domainShare / accountCount)
+    // Update each inbox with its domain's warmup rate
+    const BATCH_SIZE = 50
+    const updates: Array<{ id: string; latest_inbox_rate: number; latest_spam_rate: number; warmup_last_checked: string }> = []
 
-        for (const accountId of accountIds) {
-          const snapshotData = {
-            email_account_id: accountId,
-            date,
-            emails_sent: estSent,
-            inbox_count: estInbox,
-            spam_count: estSpam,
-            promotion_count: estPromotion,
-            inbox_rate: Number(inboxPct) || 0,
-          }
+    for (const inbox of inboxes) {
+      const domain = inbox.email?.split('@')[1]?.toLowerCase()
+      if (!domain) continue
 
-          try {
-            const { error } = await supabase
-              .from('warmup_snapshots')
-              .upsert(snapshotData, { onConflict: 'email_account_id,date' })
+      const inboxRate = domainRates.get(domain)
+      if (inboxRate === undefined) continue
 
-            if (error) {
-              console.error(`Failed warmup for account ${accountId}:`, error.message)
-              failed++
-            } else {
-              updated++
-            }
-          } catch (e) {
-            console.error(`Error for warmup account ${accountId}:`, e)
+      const spamRate = totalSent > 0 ? Math.round(totalSpam / totalSent * 100) : 0
+
+      updates.push({
+        id: inbox.id,
+        latest_inbox_rate: inboxRate,
+        latest_spam_rate: spamRate,
+        warmup_last_checked: now,
+      })
+    }
+
+    // Batch update
+    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+      const batch = updates.slice(i, i + BATCH_SIZE)
+      for (const upd of batch) {
+        try {
+          const { error } = await supabase
+            .from('email_inboxes')
+            .update({
+              latest_inbox_rate: upd.latest_inbox_rate,
+              latest_spam_rate: upd.latest_spam_rate,
+              warmup_last_checked: upd.warmup_last_checked,
+            })
+            .eq('id', upd.id)
+
+          if (error) {
+            console.error(`Failed warmup update for ${upd.id}:`, error.message)
             failed++
+          } else {
+            updated++
           }
+        } catch (e) {
+          console.error(`Error warmup update for ${upd.id}:`, e)
+          failed++
         }
       }
     }
@@ -126,10 +136,9 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'warmup_snapshots',
-      operation: 'daily_snapshot',
-      records_processed: chartData.length,
-      records_created: created,
+      table_name: 'email_inboxes',
+      operation: 'warmup_sync',
+      records_processed: inboxes.length,
       records_updated: updated,
       records_failed: failed,
       started_at: startedAt.toISOString(),
@@ -141,13 +150,11 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         date_range: { start: startDate, end: endDate },
-        days: chartData.length,
         domains: Object.keys(domainDetail).length,
-        total_accounts: emailAccounts?.length || 0,
-        snapshots_upserted: updated,
+        total_inboxes: inboxes.length,
+        updated,
         failed,
         aggregate: {
-          total_warmup_sent: emailAcc.total_warmup_sent,
           inbox_percent: emailAcc.inbox_percent,
           spam_percent: emailAcc.spam_percent,
         }
@@ -159,17 +166,17 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'warmup_snapshots',
-      operation: 'daily_snapshot',
+      table_name: 'email_inboxes',
+      operation: 'warmup_sync',
       records_failed: 1,
-      error_message: error.message,
+      error_message: (error as Error).message,
       started_at: startedAt.toISOString(),
       completed_at: completedAt.toISOString(),
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
 
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: (error as Error).message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }

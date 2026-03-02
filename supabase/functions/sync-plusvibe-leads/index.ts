@@ -90,7 +90,6 @@ serve(async (req) => {
           industry: lead.industry,
           company_website: lead.website || lead.company_website,
           label: lead.label,
-          lead_source: lead.lead_source || 'plusvibe',
           source: 'plusvibe',
           lead_status: mapLeadStatus(lead.status, lead.label),
           campaign_id: campaignInfo?.id || null,

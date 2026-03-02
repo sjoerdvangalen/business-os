@@ -119,7 +119,7 @@ serve(async (req) => {
       const batch = allRecords.slice(i, i + BATCH_SIZE)
       try {
         const { error } = await supabase
-          .from('email_accounts')
+          .from('email_inboxes')
           .upsert(batch, { onConflict: 'plusvibe_id' })
 
         if (error) {
@@ -138,7 +138,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'email_accounts',
+      table_name: 'email_inboxes',
       operation: 'full_sync',
       records_processed: allAccounts.length,
       records_created: 0,
@@ -158,7 +158,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'email_accounts',
+      table_name: 'email_inboxes',
       operation: 'full_sync',
       records_failed: 1,
       error_message: error.message,

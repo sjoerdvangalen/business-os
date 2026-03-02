@@ -63,7 +63,7 @@ serve(async (req) => {
     switch (true) {
       case eventType.includes('REPLY') || eventType === 'ALL_EMAIL_REPLIES': {
         // Store the email message
-        await supabase.from('email_messages').insert({
+        await supabase.from('email_threads').insert({
           plusvibe_id: payload.email_id || payload.id || `wh-${Date.now()}`,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
@@ -113,7 +113,7 @@ serve(async (req) => {
 
       case eventType === 'BOUNCED_EMAIL': {
         // Store bounce event
-        await supabase.from('email_messages').insert({
+        await supabase.from('email_threads').insert({
           plusvibe_id: payload.email_id || `bounce-${Date.now()}`,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
@@ -150,7 +150,7 @@ serve(async (req) => {
 
       case eventType === 'EMAIL_SENT': {
         // Store sent event
-        await supabase.from('email_messages').insert({
+        await supabase.from('email_threads').insert({
           plusvibe_id: payload.email_id || `sent-${Date.now()}`,
           contact_id: contact?.id,
           campaign_id: campaign?.id,

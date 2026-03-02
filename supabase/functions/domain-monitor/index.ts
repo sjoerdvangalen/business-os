@@ -12,7 +12,7 @@ const corsHeaders = {
  * Runs daily at 06:00 UTC via pg_cron.
  * Checks:
  * - SPF/DKIM/DMARC status per domain (via PlusVibe API)
- * - Warmup inbox placement trends (via warmup_snapshots)
+ * - Warmup inbox placement trends (via email_inboxes)
  * - Disconnected accounts per domain
  * - Accounts with warmup inactive but in active campaigns
  *
@@ -39,7 +39,7 @@ serve(async (req) => {
     // 1. Get all domains with their accounts
     const { data: domains } = await supabase
       .from('domains')
-      .select('id, domain, provider, spf_valid, dkim_valid, dmarc_valid, health_status')
+      .select('id, domain, provider, spf_status, dkim_status, dmarc_status, health_status')
 
     if (!domains || domains.length === 0) {
       return new Response(
@@ -50,7 +50,7 @@ serve(async (req) => {
 
     // 2. Get email accounts grouped by domain
     const { data: accounts } = await supabase
-      .from('email_accounts')
+      .from('email_inboxes')
       .select('id, email, domain_id, status, warmup_status')
 
     const accountsByDomain = new Map<string, Array<{ id: string; email: string; status: string; warmup_status: string }>>()
@@ -152,9 +152,9 @@ serve(async (req) => {
 
       // SPF/DKIM/DMARC from PlusVibe check
       const health = healthResults.get(domain.domain || '')
-      const spfStatus = health ? (health.spf ? 'pass' : 'fail') : (domain.spf_valid ? 'pass' : 'unknown')
-      const dkimStatus = health ? (health.dkim ? 'pass' : 'fail') : (domain.dkim_valid ? 'pass' : 'unknown')
-      const dmarcStatus = health ? (health.dmarc ? 'pass' : 'fail') : (domain.dmarc_valid ? 'pass' : 'unknown')
+      const spfStatus = health ? (health.spf ? 'pass' : 'fail') : (domain.spf_status || 'unknown')
+      const dkimStatus = health ? (health.dkim ? 'pass' : 'fail') : (domain.dkim_status || 'unknown')
+      const dmarcStatus = health ? (health.dmarc ? 'pass' : 'fail') : (domain.dmarc_status || 'unknown')
 
       // Average inbox rate from warmup data
       let avgInboxRate: number | null = null
