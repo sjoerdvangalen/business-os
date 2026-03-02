@@ -7,14 +7,20 @@ const corsHeaders = {
 }
 
 /**
- * Lead Router — routes classified replies to the correct destination
+ * Lead Router — logs classified replies for human review
  *
- * Routing rules:
- * - MEETING_REQUEST → opportunity in Supabase + Slack alert + PlusVibe label
- * - POSITIVE / INFO_REQUEST → PlusVibe label "Interested" + Slack alert
- * - NOT_INTERESTED → PlusVibe: mark COMPLETED (stops further emails)
- * - BLOCKLIST → PlusVibe: add to blocklist + delete from campaigns
- * - FUTURE_REQUEST → PlusVibe: update follow_up_date variable
+ * NOTE: Does NOT push changes to PlusVibe automatically — all actions are
+ * logged in Supabase for human review and approval before PlusVibe updates.
+ *
+ * Routing rules (human-in-the-loop):
+ * - MEETING_REQUEST → opportunity in Supabase + Slack alert
+ * - POSITIVE / INFO_REQUEST → Slack alert + agent_memory log
+ * - NOT_INTERESTED → Slack alert + agent_memory log
+ * - BLOCKLIST → Slack alert + agent_memory log
+ * - FUTURE_REQUEST → follow_up_date calculated + agent_memory log
+ *
+ * All PlusVibe updates (label, status, blocklist) must be done manually
+ * or via a separate approval workflow.
  *
  * Called by reply-classifier after classification.
  */
@@ -42,128 +48,80 @@ serve(async (req) => {
       follow_up_date,
     } = await req.json()
 
-    const apiKey = Deno.env.get('PLUSVIBE_API_KEY')!
-    const workspaceId = Deno.env.get('PLUSVIBE_WORKSPACE_ID')!
-    const pvHeaders = { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
     const actions: string[] = []
 
     switch (category) {
       case 'MEETING_REQUEST': {
-        // 1. Update PlusVibe lead label
-        await pvFetch('PATCH', '/lead/update-variable', {
-          workspace_id: workspaceId,
-          email: contact_email,
-          campaign_id: plusvibe_camp_id,
-          variables: { label: 'Meeting Booked' },
-        }, pvHeaders)
-        actions.push('PlusVibe: label → Meeting Booked')
-
-        // 2. Create opportunity in Supabase
+        // 1. Create opportunity in Supabase
         await supabase.from('opportunities').insert({
           client_id,
           contact_id,
           campaign_id,
           stage: 'meeting_booked',
           source: 'cold_email',
-          notes: `Auto-created from reply classification.\nReply: ${reply_preview}`,
+          notes: `Auto-created from reply classification (needs manual PlusVibe update).\nReply: ${reply_preview}`,
         })
         actions.push('Supabase: opportunity created')
 
-        // 3. Slack alert
+        // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
           channel: 'vgg-alerts',
-          text: `🎯 *Meeting Request!*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Opportunity created. Respond ASAP._`,
+          text: `🎯 *Meeting Request!*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Opportunity created in Supabase. MANUAL: Update PlusVibe label to "Meeting Booked"._`,
         })
-        actions.push('Slack: alert sent')
+        actions.push('Slack: alert sent (PlusVibe label update pending manual approval)')
         break
       }
 
       case 'POSITIVE':
       case 'INFO_REQUEST': {
-        // 1. Update PlusVibe lead label
-        await pvFetch('PATCH', '/lead/update-variable', {
-          workspace_id: workspaceId,
-          email: contact_email,
-          campaign_id: plusvibe_camp_id,
-          variables: { label: 'Interested' },
-        }, pvHeaders)
-        actions.push(`PlusVibe: label → Interested (was ${category})`)
+        // 1. Log to Supabase for human review
+        actions.push(`Supabase: logged for review (classification: ${category})`)
 
-        // 2. Slack alert
+        // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
           channel: 'vgg-alerts',
-          text: `✅ *${category === 'POSITIVE' ? 'Positive Reply' : 'Info Request'}*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Follow up manually._`,
+          text: `✅ *${category === 'POSITIVE' ? 'Positive Reply' : 'Info Request'}*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Update PlusVibe label if needed._`,
         })
-        actions.push('Slack: alert sent')
+        actions.push('Slack: alert sent (PlusVibe label update pending manual approval)')
         break
       }
 
       case 'NOT_INTERESTED': {
-        // 1. Mark lead as COMPLETED in PlusVibe (stops further emails)
-        if (plusvibe_camp_id) {
-          await pvFetch('PATCH', '/lead/update-status', {
-            workspace_id: workspaceId,
-            campaign_id: plusvibe_camp_id,
-            email: contact_email,
-            new_status: 'COMPLETED',
-          }, pvHeaders)
-          actions.push('PlusVibe: status → COMPLETED')
-        }
+        // 1. Log to Supabase for human review
+        actions.push('Supabase: logged for review')
 
-        // 2. Update label
-        await pvFetch('PATCH', '/lead/update-variable', {
-          workspace_id: workspaceId,
-          email: contact_email,
-          campaign_id: plusvibe_camp_id,
-          variables: { label: 'Not Interested' },
-        }, pvHeaders)
-        actions.push('PlusVibe: label → Not Interested')
+        // 2. Slack alert (HUMAN REVIEW NEEDED)
+        await sendSlackAlert(supabase, {
+          channel: 'vgg-alerts',
+          text: `❌ *Not Interested*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Mark as COMPLETED in PlusVibe to stop further emails._`,
+        })
+        actions.push('Slack: alert sent (PlusVibe status update pending manual approval)')
         break
       }
 
       case 'BLOCKLIST': {
-        // 1. Add to blocklist
-        await pvFetch('POST', '/blocklist/add', {
-          workspace_id: workspaceId,
-          entries: [contact_email],
-        }, pvHeaders)
-        actions.push('PlusVibe: added to blocklist')
+        // 1. Log to Supabase for human review
+        actions.push('Supabase: logged for review (blocklist request)')
 
-        // 2. Delete from campaigns (optional — blocklist already prevents future sends)
-        // Not deleting to preserve history
-
-        // 3. Slack alert
+        // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
           channel: 'vgg-alerts',
-          text: `🚫 *Blocklist Request*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Added to blocklist automatically._`,
+          text: `🚫 *Blocklist Request*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Add to PlusVibe blocklist and delete from campaigns._`,
         })
-        actions.push('Slack: alert sent')
+        actions.push('Slack: alert sent (blocklist action pending manual approval)')
         break
       }
 
       case 'FUTURE_REQUEST': {
-        // 1. Update PlusVibe lead variables with follow-up date
-        await pvFetch('PATCH', '/lead/update-variable', {
-          workspace_id: workspaceId,
-          email: contact_email,
-          campaign_id: plusvibe_camp_id,
-          variables: {
-            label: 'Future Request',
-            follow_up_date: follow_up_date,
-          },
-        }, pvHeaders)
-        actions.push(`PlusVibe: label → Future Request, follow_up: ${follow_up_date}`)
+        // 1. Log follow-up date to Supabase for human review
+        actions.push(`Supabase: logged for review (follow-up: ${follow_up_date})`)
 
-        // 2. Mark as COMPLETED to stop current sequence
-        if (plusvibe_camp_id) {
-          await pvFetch('PATCH', '/lead/update-status', {
-            workspace_id: workspaceId,
-            campaign_id: plusvibe_camp_id,
-            email: contact_email,
-            new_status: 'COMPLETED',
-          }, pvHeaders)
-          actions.push('PlusVibe: status → COMPLETED (will re-engage later)')
-        }
+        // 2. Slack alert (HUMAN REVIEW NEEDED)
+        await sendSlackAlert(supabase, {
+          channel: 'vgg-alerts',
+          text: `⏰ *Future Request*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Follow-up Date:* ${follow_up_date}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Update PlusVibe label + follow-up date, then mark as COMPLETED to stop current sequence._`,
+        })
+        actions.push('Slack: alert sent (PlusVibe follow-up action pending manual approval)')
         break
       }
     }
@@ -199,24 +157,6 @@ serve(async (req) => {
     )
   }
 })
-
-// Helper: PlusVibe API call
-async function pvFetch(method: string, path: string, body: unknown, headers: Record<string, string>) {
-  try {
-    const url = `https://api.plusvibe.ai/api/v1${path}`
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: JSON.stringify(body),
-    })
-    if (!response.ok) {
-      console.error(`PlusVibe ${method} ${path} failed: ${response.status}`)
-    }
-    return response
-  } catch (e) {
-    console.error(`PlusVibe ${method} ${path} error:`, (e as Error).message)
-  }
-}
 
 // Helper: Send Slack alert via webhook
 async function sendSlackAlert(supabase: ReturnType<typeof createClient>, { channel, text }: { channel: string; text: string }) {
