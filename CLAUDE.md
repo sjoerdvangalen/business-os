@@ -44,7 +44,14 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
 │       ├── sync-plusvibe-campaigns/    # Every 15 min via pg_cron
 │       ├── sync-plusvibe-accounts/     # Every 15 min via pg_cron
-│       └── sync-plusvibe-warmup/       # Daily at 00:00 UTC via pg_cron
+│       ├── sync-plusvibe-warmup/       # Daily at 00:00 UTC via pg_cron
+│       ├── sync-plusvibe-leads/        # Every 15 min — lead catch-up sync
+│       ├── webhook-receiver/          # Real-time PlusVibe webhook events
+│       ├── reply-classifier/          # Classifies replies (called by webhook-receiver)
+│       ├── lead-router/               # Routes classified leads (called by reply-classifier)
+│       ├── aggregate-kpis/            # Daily KPI aggregation at 05:00 UTC
+│       ├── campaign-monitor/          # Health checks every 15 min
+│       └── domain-monitor/            # Deliverability check daily at 06:00 UTC
 └── sync/
     └── import-airtable.ts             # One-time import script (already run)
 ```
@@ -55,24 +62,40 @@ Revenue model: retainer + meeting fees + commission on closed deals.
   - `research` JSONB — deep company research output
   - `strategy` JSONB — GTM strategy (ICPs, offers, PMF)
   - `onboarding_status` — pipeline stage tracking
+  - `report_frequency` — weekly/biweekly/monthly
 - `campaigns` — Synced from PlusVibe (23 active campaigns)
+  - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
+  - `monitoring_notes` JSONB — array of recent health check results
 - `email_accounts` — Synced from PlusVibe (4,386 accounts)
 - `warmup_snapshots` — Daily warmup health per account
 - `domains` — Email sending domains
-- `contacts` — Leads (not yet synced from PlusVibe)
+  - `spf_status`, `dkim_status`, `dmarc_status` — set by domain-monitor
+  - `health_status`, `avg_inbox_rate` — set by domain-monitor
+- `contacts` — Leads (synced from PlusVibe every 15 min + real-time via webhooks)
+  - `reply_classification` — NOT_INTERESTED/BLOCKLIST/FUTURE_REQUEST/MEETING_REQUEST/INFO_REQUEST/OOO/POSITIVE/NEUTRAL
+  - `lead_status` — new/contacted/replied/interested/meeting_booked/not_interested/blocklisted
 - `contracts`, `invoices` — Financial data (imported from Airtable)
-- `meetings`, `opportunities` — CRM pipeline
-- `sequences` — Email steps within campaigns (also stores generated copy with `offer_variant`, `target_icp`, `copy_status`)
-- `email_messages` — Conversation history
-- `daily_kpis` — Aggregated daily metrics
-- `sync_log` — Tracks every sync operation
-- `agent_memory` — AI agent context, research logs, review feedback
+- `meetings`, `opportunities` — CRM pipeline (opportunities auto-created by lead-router)
+- `sequences` — Email steps within campaigns
+  - `offer_variant`, `target_icp`, `copy_status` — generated copy tracking
+  - `performance_score`, `auto_paused` — set by sequence-optimizer
+- `email_messages` — Conversation history (real-time via webhooks)
+- `daily_kpis` — Aggregated daily metrics (per campaign + per client)
+- `sync_log` — Tracks every sync + agent operation
+- `agent_memory` — AI agent context, alerts, classification logs, routing logs
 
 ### Key Views
 - `v_campaign_performance` — Campaign health status (HEALTHY/WARNING/CRITICAL)
+- `v_campaign_health_live` — Live 7-day rolling campaign health with computed alerts
+- `v_client_health` — Client-level aggregated metrics (30-day)
+- `v_domain_health` — Domain deliverability status (SPF/DKIM/DMARC + inbox rates)
 - `v_inbox_health` — Email account health dashboard
 - `v_lead_pipeline` — Lead funnel by status
 - `v_sync_status` — Recent sync operations
+
+### Agent Architecture
+Real-time pipeline: PlusVibe webhooks → `webhook-receiver` → `reply-classifier` → `lead-router` → PlusVibe API + Slack
+Monitoring agents run via pg_cron: `campaign-monitor` (*/15 min), `domain-monitor` (daily), `aggregate-kpis` (daily)
 
 ## Clients (active)
 | Code | Name | What they do |
