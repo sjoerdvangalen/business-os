@@ -205,14 +205,13 @@ Client onboarding status is tracked in `clients.onboarding_status`:
 
 ## Known Issues & Decisions
 - Service role key is hardcoded in pg_cron migration — needs vault/secrets solution
-- No RLS policies yet — everything is open (fine for now, needs fixing before dashboard)
-- `aggregate-kpis` edge function is broken (writes to dropped `daily_kpis` table) — needs fix or removal
-- `webhook-calendar` is deprecated — replaced by `webhook-meeting`
+- RLS enabled on all 14 tables — anon blocked, service_role bypasses. Add policies when dashboard is built.
+- `aggregate-kpis` and `webhook-calendar` REMOVED from remote (deprecated)
 - n8n workflows still running as backup — DO NOT deactivate until Supabase system is fully verified
 - Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)
 - Slack review flow DONE — meeting-review cron + webhook-slack-interaction (Qualified direct, Unqualified/No-Show/Rescheduled via modals)
 - `SLACK_TEST_CHANNEL` env var still set to `C0A50BSF8E8` (GTM Scaling) — unset when going live per client
-- PlusVibe API key hardcoded in webhook-meeting — should move to Supabase secrets
+- PlusVibe API key moved to Supabase secrets (`PLUSVIBE_API_KEY`)
 
 ## Vision
 Fully automated Business OS where AI agents handle:
