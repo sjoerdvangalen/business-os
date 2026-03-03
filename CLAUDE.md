@@ -55,6 +55,8 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │       ├── reply-classifier/          # Classifies replies (called by webhook-receiver)
 │       ├── lead-router/               # Routes classified leads (called by reply-classifier)
 │       ├── webhook-meeting/           # Multi-provider meeting webhook (Cal.com, Calendly, GHL)
+│       ├── meeting-review/            # Cron */5 min — sends Slack Block Kit review after meetings
+│       ├── webhook-slack-interaction/ # Slack button/modal handler for meeting reviews
 │       ├── campaign-monitor/          # Health checks every 15 min
 │       └── domain-monitor/            # Deliverability check daily at 06:00 UTC
 └── sync/
@@ -94,6 +96,7 @@ Revenue model: retainer + meeting fees + commission on closed deals.
   - `review_scheduled_at` — when to send Slack review (start_time + 30 min)
   - `review_slack_ts` — Slack message ID for updating review message
   - `reviewed_at`, `reviewed_by`, `review_status`, `review_notes`
+  - `recording_url` — meeting recording link (from Unqualified modal)
 - `opportunities` — CRM pipeline, auto-created on meeting booking
   - `status` mirrors `meetings.booking_status` (1:1)
   - `meeting_id` — links to meeting (bidirectional)
@@ -110,8 +113,8 @@ Webhook (Cal.com/Calendly/GHL)
     → BOOKED: create meeting + opportunity + PlusVibe update + Slack
     → CANCELLED: update meeting + opportunity status, clear review timer
     → RESCHEDULED: update times + opportunity status, reset review timer
-  → 30 min after meeting: Slack review to client channel (TODO: meeting-review cron)
-    → Client clicks: Completed / Qualified / No-Show / Unqualified
+  → 30 min after meeting: meeting-review cron sends Block Kit review to client Slack channel
+    → Client clicks: Qualified / Unqualified / No-Show / Rescheduled
     → No-Show requires proof, VGG has final say
     → Opportunity status mirrors meeting status 1:1
 ```
@@ -207,7 +210,8 @@ Client onboarding status is tracked in `clients.onboarding_status`:
 - `webhook-calendar` is deprecated — replaced by `webhook-meeting`
 - n8n workflows still running as backup — DO NOT deactivate until Supabase system is fully verified
 - Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)
-- Slack review flow (post-meeting buttons) not yet built — next priority
+- Slack review flow DONE — meeting-review cron + webhook-slack-interaction (Qualified direct, Unqualified/No-Show/Rescheduled via modals)
+- `SLACK_TEST_CHANNEL` env var still set to `C0A50BSF8E8` (GTM Scaling) — unset when going live per client
 - PlusVibe API key hardcoded in webhook-meeting — should move to Supabase secrets
 
 ## Vision
