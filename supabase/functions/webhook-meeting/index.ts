@@ -223,6 +223,9 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     }
   }
 
+  // Calculate review time (30 min after meeting start)
+  const reviewAt = n.startTime ? new Date(new Date(n.startTime).getTime() + 30 * 60 * 1000).toISOString() : null
+
   // Create meeting (link to opportunity)
   const { data: meeting, error: meetErr } = await supabase.from('meetings').insert({
     client_id: client?.id || null,
@@ -239,6 +242,8 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     provider_booking_id: n.bookingId, provider_event_type: n.eventType,
     calcom_booking_id: integration.integration_type === 'calcom' ? n.bookingId : null,
     calcom_event_type: integration.integration_type === 'calcom' ? n.eventType : null,
+    review_scheduled_at: reviewAt,
+    review_status: 'pending',
   }).select('id').single()
   if (meetErr) throw new Error(`Meeting insert: ${meetErr.message}`)
 
@@ -262,28 +267,68 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
 }
 
 async function handleCancelled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
-  if (n.bookingId) {
-    await supabase.from('meetings').update({
-      booking_status: 'cancelled',
-      review_notes: `Cancelled: ${n.cancellationReason || 'No reason'}`,
-    }).eq('provider_booking_id', n.bookingId)
+  if (!n.bookingId) return
+
+  // Get the meeting to find linked opportunity
+  const { data: meeting } = await supabase.from('meetings')
+    .select('id, opportunity_id')
+    .eq('provider_booking_id', n.bookingId)
+    .maybeSingle()
+
+  // Update meeting status + clear review timer
+  await supabase.from('meetings').update({
+    booking_status: 'cancelled',
+    review_notes: `Cancelled: ${n.cancellationReason || 'No reason'}`,
+    review_scheduled_at: null, // no review needed for cancelled meetings
+  }).eq('provider_booking_id', n.bookingId)
+
+  // Update opportunity status to match
+  if (meeting?.opportunity_id) {
+    await supabase.from('opportunities').update({
+      status: 'cancelled',
+    }).eq('id', meeting.opportunity_id)
   }
+
   await sendSlackAlert(supabase, client,
     `❌ *Meeting Cancelled* [${clientCode}]\n*Via:* ${integration.name}\n` +
-    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Was:* ${fmtDt(n.startTime)}`
+    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Was:* ${fmtDt(n.startTime)}\n` +
+    `*Reason:* ${n.cancellationReason || 'No reason given'}`
   )
 }
 
 async function handleRescheduled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
-  if (n.bookingId) {
-    await supabase.from('meetings').update({
-      start_time: n.startTime, end_time: n.endTime,
-      booking_status: 'booked', location: n.location,
-    }).eq('provider_booking_id', n.bookingId)
+  if (!n.bookingId) return
+
+  // Get the meeting to find linked opportunity
+  const { data: meeting } = await supabase.from('meetings')
+    .select('id, opportunity_id')
+    .eq('provider_booking_id', n.bookingId)
+    .maybeSingle()
+
+  // Calculate new review time (30 min after new meeting start)
+  const reviewAt = n.startTime ? new Date(new Date(n.startTime).getTime() + 30 * 60 * 1000).toISOString() : null
+
+  // Update meeting with new times + reset review timer
+  await supabase.from('meetings').update({
+    start_time: n.startTime, end_time: n.endTime,
+    booking_status: 'rescheduled', location: n.location,
+    review_scheduled_at: reviewAt,
+    review_slack_ts: null, // clear old review message reference
+    reviewed_at: null, // reset review
+    review_status: 'pending',
+  }).eq('provider_booking_id', n.bookingId)
+
+  // Update opportunity status to match
+  if (meeting?.opportunity_id) {
+    await supabase.from('opportunities').update({
+      status: 'rescheduled',
+    }).eq('id', meeting.opportunity_id)
   }
+
   await sendSlackAlert(supabase, client,
     `🔄 *Meeting Rescheduled* [${clientCode}]\n*Via:* ${integration.name}\n` +
-    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*New:* ${fmtDt(n.startTime)}`
+    `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*New time:* ${fmtDt(n.startTime)}\n` +
+    `_Review timer reset to ${fmtDt(reviewAt || '')}_`
   )
 }
 

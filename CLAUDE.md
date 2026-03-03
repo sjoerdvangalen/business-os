@@ -9,6 +9,7 @@ No fixed employees — works with VA's and freelancers as needed.
 Cold email outreach campaigns for B2B clients. We manage the full infrastructure:
 domains, email accounts, warmup, campaign setup, lead sourcing, and optimization.
 Revenue model: retainer + meeting fees + commission on closed deals.
+**Core product = sales meetings. Meetings are what we deliver.**
 
 ## Communication
 - **Nederlands** for conversation and explanations
@@ -19,9 +20,11 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - **Database**: Supabase (project: `gjhbbyodrbuabfzafzry`, region: West EU Ireland)
 - **Edge Functions**: Deno + TypeScript (Supabase Edge Functions)
 - **Email Platform**: PlusVibe (workspace: `68f8e5d7e13f67d591c4f0a8`)
+- **Calendar**: Cal.com + GoHighLevel (multi-provider via webhook-meeting)
 - **Automation**: Supabase pg_cron + Edge Functions (replacing n8n)
+- **Communication**: Slack (per-client channels + #vgg-alerts), Google Workspace
 - **Airtable**: Legacy/archive only — GTM Scaling base `appaGhM19wYDA9PqB`
-- **Communication**: Slack, Google Workspace
+- **n8n**: Still running as backup — DO NOT modify/deactivate n8n workflows until Supabase system is 100% stable
 - **Code**: GitHub
 - **Runtime**: Deno at `/Users/sjoerdvangalen/.deno/bin/deno`
 
@@ -40,80 +43,102 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ├── research/                          # Client research .md files (1 per client)
 │   └── FRTC.md, BETS.md, etc.
 ├── supabase/
-│   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push --linked`)
+│   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push`)
 │   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
 │       ├── sync-plusvibe-campaigns/    # Every 15 min via pg_cron
 │       ├── sync-plusvibe-accounts/     # Every 15 min via pg_cron
 │       ├── sync-plusvibe-warmup/       # Daily at 00:00 UTC via pg_cron
 │       ├── sync-plusvibe-leads/        # Every 15 min — lead catch-up sync
+│       ├── sync-domains/              # Daily — domain health from email accounts
+│       ├── sync-sequences/            # Every 15 min — email sequences from PlusVibe
 │       ├── webhook-receiver/          # Real-time PlusVibe webhook events
 │       ├── reply-classifier/          # Classifies replies (called by webhook-receiver)
 │       ├── lead-router/               # Routes classified leads (called by reply-classifier)
-│       ├── aggregate-kpis/            # Daily KPI aggregation at 05:00 UTC
+│       ├── webhook-meeting/           # Multi-provider meeting webhook (Cal.com, Calendly, GHL)
 │       ├── campaign-monitor/          # Health checks every 15 min
 │       └── domain-monitor/            # Deliverability check daily at 06:00 UTC
 └── sync/
     └── import-airtable.ts             # One-time import script (already run)
 ```
 
-## Supabase Schema (17 tables)
+## Supabase Schema
+
+### Core Tables
 - `clients` — Hub table, all data connects here via client_id
-  - `onboarding_form` JSONB — onboarding questionnaire data
-  - `research` JSONB — deep company research output
-  - `strategy` JSONB — GTM strategy (ICPs, offers, PMF)
+  - `onboarding_form` JSONB, `research` JSONB, `strategy` JSONB
   - `onboarding_status` — pipeline stage tracking
   - `report_frequency` — weekly/biweekly/monthly
-- `campaigns` — Synced from PlusVibe (23 active campaigns)
+  - `slack_channel_id` — Slack channel for this client's alerts/reviews
+- `campaigns` — Synced from PlusVibe
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
-  - `monitoring_notes` JSONB — array of recent health check results
+  - `monitoring_notes` JSONB — recent health check results
 - `email_accounts` — Synced from PlusVibe (4,386 accounts)
-- `warmup_snapshots` — Daily warmup health per account
-- `domains` — Email sending domains
+- `domains` — Email sending domains (synced via sync-domains)
   - `spf_status`, `dkim_status`, `dmarc_status` — set by domain-monitor
-  - `health_status`, `avg_inbox_rate` — set by domain-monitor
-- `contacts` — Leads (synced from PlusVibe every 15 min + real-time via webhooks)
+- `contacts` — Leads (synced from PlusVibe + real-time via webhooks)
   - `reply_classification` — NOT_INTERESTED/BLOCKLIST/FUTURE_REQUEST/MEETING_REQUEST/INFO_REQUEST/OOO/POSITIVE/NEUTRAL
   - `lead_status` — new/contacted/replied/interested/meeting_booked/not_interested/blocklisted
-- `contracts`, `invoices` — Financial data (imported from Airtable)
-- `meetings`, `opportunities` — CRM pipeline (opportunities auto-created by lead-router)
-- `sequences` — Email steps within campaigns
-  - `offer_variant`, `target_icp`, `copy_status` — generated copy tracking
-  - `performance_score`, `auto_paused` — set by sequence-optimizer
+- `sequences` — Email steps within campaigns (synced from PlusVibe)
 - `email_messages` — Conversation history (real-time via webhooks)
-- `daily_kpis` — Aggregated daily metrics (per campaign + per client)
+
+### Meeting & CRM Tables
+- `client_integrations` — Per-client calendar/webhook integrations
+  - `integration_type` — calcom/calendly/gohighlevel
+  - `webhook_token` — unique URL token per integration
+  - `provider_config` JSONB — provider-specific settings
+- `meetings` — Calendar meetings (real-time via webhook-meeting)
+  - `booking_status` — booked/rescheduled/cancelled/completed/no_show/qualified/unqualified
+  - `opportunity_id` — links to opportunity
+  - `integration_id` — which client_integration created this
+  - `provider_booking_id` — dedup key from calendar provider
+  - `review_scheduled_at` — when to send Slack review (start_time + 30 min)
+  - `review_slack_ts` — Slack message ID for updating review message
+  - `reviewed_at`, `reviewed_by`, `review_status`, `review_notes`
+- `opportunities` — CRM pipeline, auto-created on meeting booking
+  - `status` mirrors `meetings.booking_status` (1:1)
+  - `meeting_id` — links to meeting (bidirectional)
+  - `campaign_id`, `contact_id`, `client_id`
+
+### Operational Tables
 - `sync_log` — Tracks every sync + agent operation
 - `agent_memory` — AI agent context, alerts, classification logs, routing logs
 
-### Key Views
-- `v_campaign_performance` — Campaign health status (HEALTHY/WARNING/CRITICAL)
-- `v_campaign_health_live` — Live 7-day rolling campaign health with computed alerts
-- `v_client_health` — Client-level aggregated metrics (30-day)
-- `v_domain_health` — Domain deliverability status (SPF/DKIM/DMARC + inbox rates)
-- `v_inbox_health` — Email account health dashboard
-- `v_lead_pipeline` — Lead funnel by status
-- `v_sync_status` — Recent sync operations
+### Meeting Lifecycle
+```
+Webhook (Cal.com/Calendly/GHL)
+  → webhook-meeting (token-based routing per client)
+    → BOOKED: create meeting + opportunity + PlusVibe update + Slack
+    → CANCELLED: update meeting + opportunity status, clear review timer
+    → RESCHEDULED: update times + opportunity status, reset review timer
+  → 30 min after meeting: Slack review to client channel (TODO: meeting-review cron)
+    → Client clicks: Completed / Qualified / No-Show / Unqualified
+    → No-Show requires proof, VGG has final say
+    → Opportunity status mirrors meeting status 1:1
+```
 
 ### Agent Architecture
-Real-time pipeline: PlusVibe webhooks → `webhook-receiver` → `reply-classifier` → `lead-router` → PlusVibe API + Slack
-Monitoring agents run via pg_cron: `campaign-monitor` (*/15 min), `domain-monitor` (daily), `aggregate-kpis` (daily)
+- **Reply pipeline**: PlusVibe webhooks → `webhook-receiver` → `reply-classifier` → `lead-router` → PlusVibe API + Slack
+- **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + PlusVibe API + Slack
+- **Monitoring**: `campaign-monitor` (*/15 min), `domain-monitor` (daily)
+- **Syncs**: campaigns, accounts, leads (*/15 min), warmup + domains (daily), sequences (*/15 min)
 
 ## Clients (active)
-| Code | Name | What they do |
-|------|------|-------------|
-| FRTC | FRT Capital | Venture capital / investment fund |
-| BETS | Better Socials | Social media marketing |
-| AXIS | AXIND Software BV | Software development |
-| SECX | SentioCX | AI-powered customer experience platform |
-| REMR | Remote Rumble | Sales acquisition agency |
-| PESC | Pescheck | International background checks platform |
-| DOMS | Dovideq Medical Systems | Medical devices for minimally invasive surgery |
-| DIGT | Digital Traffic | Digital marketing agency |
-| PROL | Prolink | B2B services |
-| OGNO | Ogno | Tech company |
-| NEBE | NBE B.V. | B2B services |
-| GTMS | GTM Scaling | Own company (with Niels) |
-| QULF | Quality Lead Formula | Lead generation |
-| LDEM | LDesignMedia | Design/media |
+| Code | Name | What they do | Calendar |
+|------|------|-------------|----------|
+| FRTC | FRT Capital | Venture capital / investment fund | — |
+| BETS | Better Socials | Social media marketing | Cal.com |
+| AXIS | AXIND Software BV | Software development | — |
+| SECX | SentioCX | AI-powered customer experience platform | — |
+| REMR | Remote Rumble | Sales acquisition agency | — |
+| PESC | Pescheck | International background checks platform | — |
+| DOMS | Dovideq Medical Systems | Medical devices for minimally invasive surgery | Cal.com |
+| DIGT | Digital Traffic | Digital marketing agency | GHL |
+| PROL | Prolink | B2B services | GHL |
+| OGNO | Ogno | Tech company | — |
+| NEBE | NBE B.V. | B2B services | GHL |
+| GTMS | GTM Scaling | Own company (with Niels) | Cal.com |
+| QULF | Quality Lead Formula | Lead generation | — |
+| LDEM | LDesignMedia | Design/media | — |
 
 ### Paused/Archived
 | Code | Name | Status |
@@ -130,6 +155,7 @@ Monitoring agents run via pg_cron: `campaign-monitor` (*/15 min), `domain-monito
 - **IDs**: All tables use UUID primary keys, PlusVibe records have `plusvibe_id` TEXT field
 - **Timestamps**: All tables have `created_at` and `updated_at` (auto-updated via trigger)
 - **Sync pattern**: Edge function → PlusVibe API → upsert into Supabase → log to sync_log
+- **Meeting webhook URL**: `https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-meeting?token=<TOKEN>`
 
 ## Git & Commits
 - Claude maakt automatisch commits na voltooide taken
@@ -140,45 +166,28 @@ Monitoring agents run via pg_cron: `campaign-monitor` (*/15 min), `domain-monito
 ## Important Commands
 ```bash
 # Deploy edge functions
+cd ~/business-os && npx supabase functions deploy webhook-meeting --no-verify-jwt
 cd ~/business-os && npx supabase functions deploy sync-plusvibe-campaigns --no-verify-jwt
-cd ~/business-os && npx supabase functions deploy sync-plusvibe-accounts --no-verify-jwt
-cd ~/business-os && npx supabase functions deploy sync-plusvibe-warmup --no-verify-jwt
 
 # Push migrations
-cd ~/business-os && npx supabase db push --linked
+cd ~/business-os && npx supabase db push
 
-# Run Deno scripts
-/Users/sjoerdvangalen/.deno/bin/deno run --allow-net script.ts
-
-# Test sync manually
-curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/sync-plusvibe-campaigns' \
+# Test meeting webhook
+curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-meeting?token=<TOKEN>' \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <SERVICE_ROLE_KEY>' \
-  -d '{}'
+  -d '{"triggerEvent":"BOOKING_CREATED","payload":{...}}'
 ```
 
 ## Outbound Knowledge Base
 **CRITICAL: For ALL outbound, cold email, targeting, copy, and GTM strategy decisions, ALWAYS read `knowledge/outbound-playbook.md` first.**
 
-This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird), Fivos Aresti, and the Cold Email v2 system. It contains:
-- Core philosophy: offer > targeting > signal > messaging > infrastructure
-- Signal-based outbound methodology
-- Targeting & list building frameworks (About Us hack, responsibility-based targeting)
-- The 10-minute research method (3 tiers)
-- Email copy framework (50-90 words, 3-pass cutting, QA scoring 0-100)
-- 5 campaign types (Custom Signal, Creative Ideas, Whole Offer, Fallback, Lead Magnet)
-- Follow-up sequence philosophy (4 emails, value prop rotation)
-- 25+ personalization line templates
-- Infrastructure rules (25 emails/day/mailbox, 50/50 Google/Microsoft, etc.)
-- ICP & objection mapping framework
-- Operational benchmarks and unit economics
+This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird), Fivos Aresti, and the Cold Email v2 system.
 
 **Rule: Never generate outbound advice, copy, or strategy from generic knowledge. Always ground it in the playbook.**
 
 ## Client Research
 Research files for each client are stored in `research/CLIENT_CODE.md`.
 **When asked about a client, ALWAYS read `research/CLIENT_CODE.md` first for full context.**
-These files contain: company profile, PMF assessment, GTM strategy, ICPs, offers, and campaign copy.
 
 ### Onboarding Pipeline
 Client onboarding status is tracked in `clients.onboarding_status`:
@@ -194,13 +203,17 @@ Client onboarding status is tracked in `clients.onboarding_status`:
 ## Known Issues & Decisions
 - Service role key is hardcoded in pg_cron migration — needs vault/secrets solution
 - No RLS policies yet — everything is open (fine for now, needs fixing before dashboard)
-- PlusVibe leads sync not implemented yet (only campaigns + accounts + warmup)
-- Airtable is archive only — no ongoing sync
-- n8n still running but being phased out
+- `aggregate-kpis` edge function is broken (writes to dropped `daily_kpis` table) — needs fix or removal
+- `webhook-calendar` is deprecated — replaced by `webhook-meeting`
+- n8n workflows still running as backup — DO NOT deactivate until Supabase system is fully verified
+- Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)
+- Slack review flow (post-meeting buttons) not yet built — next priority
+- PlusVibe API key hardcoded in webhook-meeting — should move to Supabase secrets
 
 ## Vision
 Fully automated Business OS where AI agents handle:
 - Campaign monitoring and optimization
-- Client reporting
+- Client reporting (daily digest + per-client weekly reports)
+- Meeting lifecycle (booking → review → qualification)
 - Alert escalation (bounce rates, disconnected accounts, low warmup)
-- But with human-in-the-loop for key decisions (pausing campaigns, client communication)
+- But with human-in-the-loop for key decisions (pausing campaigns, client communication, meeting disputes)
