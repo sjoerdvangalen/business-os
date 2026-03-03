@@ -447,14 +447,36 @@ function extractDomainName(email: string): string {
 }
 
 async function sendSlackAlert(supabase: any, client: any, text: string) {
-  const url = Deno.env.get('SLACK_WEBHOOK_URL')
-  if (!url) {
-    supabase.from('agent_memory').insert({
-      agent_id: 'webhook-meeting', memory_type: 'slack_pending',
-      content: text, metadata: { client_code: client?.client_code },
-    }).then(() => {})
+  const token = Deno.env.get('SLACK_BOT_TOKEN')
+
+  // Fallback to webhook URL if bot token not configured yet
+  if (!token) {
+    const webhookUrl = Deno.env.get('SLACK_WEBHOOK_URL')
+    if (!webhookUrl) {
+      supabase.from('agent_memory').insert({
+        agent_id: 'webhook-meeting', memory_type: 'slack_pending',
+        content: text, metadata: { client_code: client?.client_code },
+      }).then(() => {})
+      return
+    }
+    try { await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#vgg-alerts', text }) }) }
+    catch (_) { /* skip */ }
     return
   }
-  try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#vgg-alerts', text }) }) }
-  catch (_) { /* skip */ }
+
+  // Send to client channel (if configured) + #vgg-alerts
+  const channels = ['#vgg-alerts']
+  if (client?.slack_channel_id) {
+    channels.unshift(client.slack_channel_id)
+  }
+
+  for (const channel of channels) {
+    try {
+      await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel, text, unfurl_links: false, unfurl_media: false }),
+      })
+    } catch (_) { /* skip */ }
+  }
 }
