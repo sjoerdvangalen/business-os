@@ -80,10 +80,12 @@ serve(async (req: Request) => {
           client = data
         }
 
-        // Skip if no slack channel
-        if (!client?.slack_channel_id) {
-          console.log(`Skipping meeting ${meeting.id}: no slack_channel_id for client ${client?.client_code || 'unknown'}`)
-          // Mark as sent to avoid retrying endlessly
+        // Determine target channel: use TEST override or client channel
+        const TEST_CHANNEL = Deno.env.get('SLACK_TEST_CHANNEL') // set during testing, remove for production
+        const targetChannel = TEST_CHANNEL || client?.slack_channel_id
+
+        if (!targetChannel) {
+          console.log(`Skipping meeting ${meeting.id}: no slack channel for client ${client?.client_code || 'unknown'}`)
           await supabase.from('meetings').update({
             review_slack_ts: 'NO_CHANNEL',
           }).eq('id', meeting.id)
@@ -161,7 +163,7 @@ serve(async (req: Request) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            channel: client.slack_channel_id,
+            channel: targetChannel,
             text: `Meeting Review: ${contactName} (${contactEmail})`, // fallback text
             unfurl_links: false,
             unfurl_media: false,

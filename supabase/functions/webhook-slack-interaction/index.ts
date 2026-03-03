@@ -42,6 +42,7 @@ serve(async (req: Request) => {
       const metadata = payload.message?.metadata?.event_payload || {}
       const channelId = payload.channel?.id
       const messageTs = payload.message?.ts
+      const userId = payload.user?.id || ''
       const userName = payload.user?.name || payload.user?.username || 'unknown'
 
       console.log(`Action: ${action.action_id}, meeting: ${meetingId}, user: ${userName}`)
@@ -49,16 +50,14 @@ serve(async (req: Request) => {
       switch (action.action_id) {
         case 'qualified':
           await handleDirectStatus(supabase, SLACK_BOT_TOKEN, {
-            meetingId, status: 'qualified', userName, channelId, messageTs,
-            label: 'Qualified', emoji: 'white_check_mark',
+            meetingId, status: 'qualified', userName, userId, channelId, messageTs,
+            label: 'qualified',
           })
           break
 
         case 'unqualified':
-          await handleDirectStatus(supabase, SLACK_BOT_TOKEN, {
-            meetingId, status: 'unqualified', userName, channelId, messageTs,
-            label: 'Unqualified', emoji: 'x',
-          })
+          // Open modal for reason
+          await openUnqualifiedModal(SLACK_BOT_TOKEN, payload.trigger_id, meetingId, metadata.client_id || '', channelId, messageTs)
           break
 
         case 'no_show':
@@ -78,17 +77,22 @@ serve(async (req: Request) => {
     if (payload.type === 'view_submission') {
       const callbackId = payload.view?.callback_id
       const privateMetadata = JSON.parse(payload.view?.private_metadata || '{}')
+      const userId = payload.user?.id || ''
       const userName = payload.user?.name || payload.user?.username || 'unknown'
 
       console.log(`View submission: ${callbackId}, user: ${userName}`)
 
       switch (callbackId) {
         case 'no_show_modal':
-          await handleNoShowSubmit(supabase, SLACK_BOT_TOKEN, payload, privateMetadata, userName)
+          await handleNoShowSubmit(supabase, SLACK_BOT_TOKEN, payload, privateMetadata, userName, userId)
+          break
+
+        case 'unqualified_modal':
+          await handleUnqualifiedSubmit(supabase, SLACK_BOT_TOKEN, payload, privateMetadata, userName, userId)
           break
 
         case 'reschedule_modal':
-          await handleRescheduleSubmit(supabase, SLACK_BOT_TOKEN, payload, privateMetadata, userName)
+          await handleRescheduleSubmit(supabase, SLACK_BOT_TOKEN, payload, privateMetadata, userName, userId)
           break
       }
 
@@ -107,14 +111,14 @@ serve(async (req: Request) => {
 })
 
 // ============================================================
-// DIRECT STATUS HANDLERS (Qualified / Unqualified)
+// DIRECT STATUS HANDLERS (Qualified)
 // ============================================================
 
 async function handleDirectStatus(
   supabase: any, token: string,
-  opts: { meetingId: string; status: string; userName: string; channelId: string; messageTs: string; label: string; emoji: string }
+  opts: { meetingId: string; status: string; userName: string; userId: string; channelId: string; messageTs: string; label: string }
 ) {
-  const { meetingId, status, userName, channelId, messageTs, label, emoji } = opts
+  const { meetingId, status, userName, userId, channelId, messageTs, label } = opts
 
   // Get meeting with contact/client info
   const { data: meeting } = await supabase
@@ -145,20 +149,13 @@ async function handleDirectStatus(
 
   // Get contact + client for message update
   const contactName = await getContactName(supabase, meeting)
-  const messageBlocks = await buildUpdatedMessage(supabase, meeting, label, userName, emoji)
+  const messageBlocks = await buildUpdatedMessage(supabase, meeting, label, userId)
 
   // Update original Slack message (remove buttons, show result)
   const slackTs = meeting.review_slack_ts || messageTs
   if (channelId && slackTs) {
     await slackChatUpdate(token, channelId, slackTs, messageBlocks,
       `Meeting Review: ${contactName} — ${label} by ${userName}`)
-
-    // Add checkmark reaction
-    await slackReactionAdd(token, channelId, slackTs, 'white_check_mark')
-
-    // Post thread reply
-    await slackPostThread(token, channelId, slackTs,
-      `This meeting has been marked as *${label.toLowerCase()}* by <@${userName}>`)
   }
 
   console.log(`Meeting ${meetingId} → ${status} by ${userName}`)
@@ -205,7 +202,7 @@ async function openNoShowModal(token: string, triggerId: string, meetingId: stri
   if (!data.ok) console.error('views.open no_show failed:', data.error)
 }
 
-async function handleNoShowSubmit(supabase: any, token: string, payload: any, metadata: any, userName: string) {
+async function handleNoShowSubmit(supabase: any, token: string, payload: any, metadata: any, userName: string, userId: string) {
   const meetingId = metadata.meeting_id
   const clientId = metadata.client_id
   const channelId = metadata.channel_id
@@ -255,12 +252,9 @@ async function handleNoShowSubmit(supabase: any, token: string, payload: any, me
   // Update original message
   const slackTs = meeting.review_slack_ts || messageTs
   if (channelId && slackTs) {
-    const messageBlocks = await buildUpdatedMessage(supabase, meeting, 'No-Show', userName, 'warning')
+    const messageBlocks = await buildUpdatedMessage(supabase, meeting, 'no-show', userId)
     await slackChatUpdate(token, channelId, slackTs, messageBlocks,
-      `Meeting Review: ${contactName} — No-Show by ${userName}`)
-    await slackReactionAdd(token, channelId, slackTs, 'white_check_mark')
-    await slackPostThread(token, channelId, slackTs,
-      `This meeting has been marked as *no-show* by <@${userName}>\n*Evidence:* ${proofText}`)
+      `Meeting Review: ${contactName} — no-show by ${userName}`)
   }
 
   // Alert to #vgg-alerts
@@ -275,6 +269,128 @@ async function handleNoShowSubmit(supabase: any, token: string, payload: any, me
   )
 
   console.log(`No-show submitted for meeting ${meetingId} by ${userName}`)
+}
+
+// ============================================================
+// UNQUALIFIED MODAL
+// ============================================================
+
+async function openUnqualifiedModal(token: string, triggerId: string, meetingId: string, clientId: string, channelId: string, messageTs: string) {
+  const res = await fetch('https://slack.com/api/views.open', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      trigger_id: triggerId,
+      view: {
+        type: 'modal',
+        callback_id: 'unqualified_modal',
+        private_metadata: JSON.stringify({ meeting_id: meetingId, client_id: clientId, channel_id: channelId, message_ts: messageTs }),
+        title: { type: 'plain_text', text: 'Unqualified' },
+        submit: { type: 'plain_text', text: 'Submit' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: 'Please provide the reason why this meeting was unqualified and upload the meeting recording.' }
+          },
+          {
+            type: 'input',
+            block_id: 'unqualified_reason',
+            label: { type: 'plain_text', text: 'Reason' },
+            element: {
+              type: 'plain_text_input',
+              action_id: 'reason_text',
+              multiline: true,
+              placeholder: { type: 'plain_text', text: 'Describe why this lead is unqualified (e.g. wrong ICP, no budget, not decision maker)...' }
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'unqualified_recording',
+            label: { type: 'plain_text', text: 'Meeting Recording URL' },
+            element: {
+              type: 'url_text_input',
+              action_id: 'recording_url',
+              placeholder: { type: 'plain_text', text: 'Paste the link to the meeting recording (Google Drive, Loom, etc.)' }
+            }
+          }
+        ]
+      }
+    })
+  })
+  const data = await res.json()
+  if (!data.ok) console.error('views.open unqualified failed:', data.error)
+}
+
+async function handleUnqualifiedSubmit(supabase: any, token: string, payload: any, metadata: any, userName: string, userId: string) {
+  const meetingId = metadata.meeting_id
+  const channelId = metadata.channel_id
+  const messageTs = metadata.message_ts
+
+  // Extract reason text
+  const reasonText = payload.view?.state?.values?.unqualified_reason?.reason_text?.value || 'No reason provided'
+
+  // Extract recording URL
+  const recordingUrl = payload.view?.state?.values?.unqualified_recording?.recording_url?.value || null
+
+  // Get meeting
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('id, opportunity_id, contact_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
+    .eq('id', meetingId)
+    .maybeSingle()
+
+  if (!meeting) {
+    console.error(`Unqualified submit: meeting not found ${meetingId}`)
+    return
+  }
+
+  // Update meeting
+  await supabase.from('meetings').update({
+    booking_status: 'unqualified',
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: userName,
+    review_status: 'reviewed',
+    review_notes: reasonText,
+    ...(recordingUrl ? { recording_url: recordingUrl } : {}),
+  }).eq('id', meetingId)
+
+  // Update opportunity
+  if (meeting.opportunity_id) {
+    await supabase.from('opportunities').update({
+      status: 'unqualified',
+    }).eq('id', meeting.opportunity_id)
+  }
+
+  // Update original message
+  const slackTs = meeting.review_slack_ts || messageTs
+  if (channelId && slackTs) {
+    const messageBlocks = await buildUpdatedMessage(supabase, meeting, 'unqualified', userId)
+    await slackChatUpdate(token, channelId, slackTs, messageBlocks,
+      `Meeting Review: ${meeting.attendee_name || 'Unknown'} — unqualified by ${userName}`)
+  }
+
+  // Alert to #vgg-alerts with reason
+  const { data: client } = await supabase
+    .from('clients')
+    .select('client_code')
+    .eq('id', meeting.client_id)
+    .maybeSingle()
+
+  const contactName = meeting.attendee_name || meeting.attendee_email || 'Unknown'
+  const clientCode = client?.client_code || 'UNKNOWN'
+
+  const alertChannel = Deno.env.get('SLACK_ALERTS_CHANNEL') || '#vgg-alerts'
+  await slackPostMessage(token, alertChannel,
+    `*Unqualified* [${clientCode}]\n` +
+    `*Contact:* ${contactName} (${meeting.attendee_email})\n` +
+    `*Meeting:* ${fmtDt(meeting.start_time)}\n` +
+    `*Reported by:* ${userName}\n` +
+    `*Reason:* ${reasonText}` +
+    (recordingUrl ? `\n*Recording:* ${recordingUrl}` : '')
+  )
+
+  console.log(`Unqualified submitted for meeting ${meetingId} by ${userName}`)
 }
 
 // ============================================================
@@ -314,9 +430,10 @@ async function openRescheduleModal(token: string, triggerId: string, meetingId: 
             block_id: 'reschedule_time_block',
             label: { type: 'plain_text', text: 'New Time' },
             element: {
-              type: 'timepicker',
+              type: 'static_select',
               action_id: 'reschedule_time',
-              placeholder: { type: 'plain_text', text: 'Select time' }
+              placeholder: { type: 'plain_text', text: 'Select time' },
+              options: generateTimeOptions(),
             }
           }
         ]
@@ -327,14 +444,14 @@ async function openRescheduleModal(token: string, triggerId: string, meetingId: 
   if (!data.ok) console.error('views.open reschedule failed:', data.error)
 }
 
-async function handleRescheduleSubmit(supabase: any, token: string, payload: any, metadata: any, userName: string) {
+async function handleRescheduleSubmit(supabase: any, token: string, payload: any, metadata: any, userName: string, userId: string) {
   const meetingId = metadata.meeting_id
   const channelId = metadata.channel_id
   const messageTs = metadata.message_ts
 
   // Extract date and time from modal
   const selectedDate = payload.view?.state?.values?.reschedule_date_block?.reschedule_date?.selected_date // "2026-03-15"
-  const selectedTime = payload.view?.state?.values?.reschedule_time_block?.reschedule_time?.selected_time // "14:00"
+  const selectedTime = payload.view?.state?.values?.reschedule_time_block?.reschedule_time?.selected_option?.value // "14:00"
 
   if (!selectedDate || !selectedTime) {
     console.error('Reschedule: missing date or time')
@@ -387,13 +504,10 @@ async function handleRescheduleSubmit(supabase: any, token: string, payload: any
   const slackTs = meeting.review_slack_ts || messageTs
   if (channelId && slackTs) {
     const contactName = meeting.attendee_name || meeting.attendee_email || 'Unknown'
-    const messageBlocks = await buildUpdatedMessage(supabase, meeting, `Rescheduled to ${newTimeFormatted}`, userName, 'arrows_counterclockwise')
+    const messageBlocks = await buildUpdatedMessage(supabase, meeting, `rescheduled to ${newTimeFormatted}`, userId)
 
     await slackChatUpdate(token, channelId, slackTs, messageBlocks,
-      `Meeting Review: ${contactName} — Rescheduled to ${newTimeFormatted} by ${userName}`)
-    await slackReactionAdd(token, channelId, slackTs, 'white_check_mark')
-    await slackPostThread(token, channelId, slackTs,
-      `This meeting has been *rescheduled* to ${newTimeFormatted} by <@${userName}>\n_A new review will be sent after the meeting._`)
+      `Meeting Review: ${contactName} — rescheduled to ${newTimeFormatted} by ${userName}`)
   }
 
   console.log(`Meeting ${meetingId} rescheduled to ${selectedDate} ${selectedTime} by ${userName}`)
@@ -448,7 +562,7 @@ async function slackPostMessage(token: string, channel: string, text: string) {
 // MESSAGE BUILDERS
 // ============================================================
 
-async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: string, userName: string, emoji: string): Promise<any[]> {
+async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: string, userId: string): Promise<any[]> {
   // Get contact details for the updated message
   let contact: any = null
   if (meeting.contact_id) {
@@ -464,14 +578,6 @@ async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: str
   const contactEmail = contact?.email || meeting.attendee_email || 'Unknown'
   const companyName = contact?.company_name || extractDomainName(contactEmail) || '-'
   const companyDomain = contact?.company_domain || extractDomain(contactEmail) || '-'
-
-  // Status emoji mapping
-  const statusEmojis: Record<string, string> = {
-    'Qualified': ':white_check_mark:',
-    'Unqualified': ':x:',
-    'No-Show': ':warning:',
-  }
-  const statusEmoji = statusLabel.startsWith('Rescheduled') ? ':arrows_counterclockwise:' : (statusEmojis[statusLabel] || ':white_check_mark:')
 
   return [
     {
@@ -494,7 +600,7 @@ async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: str
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `${statusEmoji} *${statusLabel}* — reviewed by ${userName}`
+        text: `This meeting has been marked as ${statusLabel} by <@${userId}>`
       }
     }
   ]
@@ -537,6 +643,27 @@ function extractDomainName(email: string): string {
 function extractDomain(email: string): string {
   if (!email?.includes('@')) return ''
   return email.split('@')[1]
+}
+
+/**
+ * Generate 30-minute interval time options for the reschedule modal.
+ * Returns options from 08:00 to 18:30.
+ */
+function generateTimeOptions(): Array<{ text: { type: string; text: string }; value: string }> {
+  const options = []
+  for (let h = 8; h <= 18; h++) {
+    for (const m of [0, 30]) {
+      if (h === 18 && m > 30) break
+      const hh = String(h).padStart(2, '0')
+      const mm = String(m).padStart(2, '0')
+      const label = `${hh}:${mm}`
+      options.push({
+        text: { type: 'plain_text' as const, text: label },
+        value: label,
+      })
+    }
+  }
+  return options
 }
 
 /**
