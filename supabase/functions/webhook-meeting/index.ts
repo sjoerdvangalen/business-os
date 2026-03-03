@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const PLUSVIBE_API_KEY = '3c35a344-bc945816-752aae0c-86acadbb'
+const PLUSVIBE_API_KEY = Deno.env.get('PLUSVIBE_API_KEY') || ''
 const PLUSVIBE_WORKSPACE = '68f8e5d7e13f67d591c4f0a8'
 
 serve(async (req: Request) => {
