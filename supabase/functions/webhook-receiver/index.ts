@@ -240,11 +240,10 @@ serve(async (req) => {
           to_email: senderEmail,
           subject: subject,
           body_text: cleanedBody,
+          body_html: payload.body_html || null,
           content_preview: cleanedBody?.substring(0, 200),
-          email_type: 'reply',
-          webhook_event: eventType,
-          webhook_received_at: new Date().toISOString(),
           is_unread: true,
+          sent_at: new Date().toISOString(),
         })
 
         // ── Call reply-classifier ──
@@ -286,10 +285,9 @@ serve(async (req) => {
           from_email: senderEmail,
           to_email: leadEmail,
           subject: subject,
-          email_type: 'bounce',
-          webhook_event: 'BOUNCED_EMAIL',
-          webhook_received_at: new Date().toISOString(),
           body_text: payload.bounce_message || 'Bounced',
+          is_unread: true,
+          sent_at: new Date().toISOString(),
         })
 
         if (contact) {
@@ -324,9 +322,7 @@ serve(async (req) => {
           to_email: leadEmail,
           subject: subject,
           body_text: payload.body || '',
-          email_type: 'campaign',
-          webhook_event: 'EMAIL_SENT',
-          webhook_received_at: new Date().toISOString(),
+          is_unread: false,
           sent_at: new Date().toISOString(),
         })
 
