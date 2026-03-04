@@ -224,7 +224,7 @@ async function sendSlackAlert(supabase: ReturnType<typeof createClient>, text: s
       agent_id: 'campaign-monitor',
       memory_type: 'slack_pending',
       content: text,
-      metadata: { channel: 'vgg-alerts' },
+      metadata: { channel: 'sales-alerts' },
     })
     return
   }
@@ -233,7 +233,7 @@ async function sendSlackAlert(supabase: ReturnType<typeof createClient>, text: s
     await fetch(slackWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel: '#vgg-alerts', text }),
+      body: JSON.stringify({ channel: '#sales-alerts', text }),
     })
   } catch (e) {
     console.error('Slack error:', (e as Error).message)

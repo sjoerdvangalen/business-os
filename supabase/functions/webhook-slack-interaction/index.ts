@@ -257,8 +257,8 @@ async function handleNoShowSubmit(supabase: any, token: string, payload: any, me
       `Meeting Review: ${contactName} — no-show by ${userName}`)
   }
 
-  // Alert to #vgg-alerts
-  const alertChannel = Deno.env.get('SLACK_ALERTS_CHANNEL') || '#vgg-alerts'
+  // Alert to #sales-alerts
+  const alertChannel = Deno.env.get('SLACK_ALERTS_CHANNEL') || '#sales-alerts'
   await slackPostMessage(token, alertChannel,
     `*No-Show Claim* [${clientCode}]\n` +
     `*Contact:* ${contactName} (${meeting.attendee_email})\n` +
@@ -370,7 +370,7 @@ async function handleUnqualifiedSubmit(supabase: any, token: string, payload: an
       `Meeting Review: ${meeting.attendee_name || 'Unknown'} — unqualified by ${userName}`)
   }
 
-  // Alert to #vgg-alerts with reason
+  // Alert to #sales-alerts with reason
   const { data: client } = await supabase
     .from('clients')
     .select('client_code')
@@ -380,7 +380,7 @@ async function handleUnqualifiedSubmit(supabase: any, token: string, payload: an
   const contactName = meeting.attendee_name || meeting.attendee_email || 'Unknown'
   const clientCode = client?.client_code || 'UNKNOWN'
 
-  const alertChannel = Deno.env.get('SLACK_ALERTS_CHANNEL') || '#vgg-alerts'
+  const alertChannel = Deno.env.get('SLACK_ALERTS_CHANNEL') || '#sales-alerts'
   await slackPostMessage(token, alertChannel,
     `*Unqualified* [${clientCode}]\n` +
     `*Contact:* ${contactName} (${meeting.attendee_email})\n` +

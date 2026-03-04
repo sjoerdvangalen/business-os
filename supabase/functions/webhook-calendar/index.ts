@@ -99,7 +99,7 @@ serve(async (req) => {
 
         // Slack alert
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `📅 *Meeting Booked!*\n*Attendee:* ${attendeeName} (${attendeeEmail})\n*Type:* ${eventType}\n*When:* ${formatDateTime(startTime)}\n*Location:* ${location || 'TBD'}\n${contact ? `_Matched to contact in Supabase._` : `_No matching contact found — manual review needed._`}`,
         })
 
@@ -123,7 +123,7 @@ serve(async (req) => {
 
         // Slack alert
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `❌ *Meeting Cancelled*\n*Attendee:* ${attendeeName} (${attendeeEmail})\n*Was scheduled:* ${formatDateTime(startTime)}\n*Reason:* ${bookingPayload.cancellation?.reason || 'No reason'}`,
         })
 
@@ -150,7 +150,7 @@ serve(async (req) => {
 
         // Slack alert
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `🔄 *Meeting Rescheduled*\n*Attendee:* ${attendeeName} (${attendeeEmail})\n*New time:* ${formatDateTime(startTime)}`,
         })
 

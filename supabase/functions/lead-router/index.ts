@@ -65,7 +65,7 @@ serve(async (req) => {
 
         // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `🎯 *Meeting Request!*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Opportunity created in Supabase. MANUAL: Update PlusVibe label to "Meeting Booked"._`,
         })
         actions.push('Slack: alert sent (PlusVibe label update pending manual approval)')
@@ -79,7 +79,7 @@ serve(async (req) => {
 
         // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `✅ *${category === 'POSITIVE' ? 'Positive Reply' : 'Info Request'}*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Update PlusVibe label if needed._`,
         })
         actions.push('Slack: alert sent (PlusVibe label update pending manual approval)')
@@ -92,7 +92,7 @@ serve(async (req) => {
 
         // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `❌ *Not Interested*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Mark as COMPLETED in PlusVibe to stop further emails._`,
         })
         actions.push('Slack: alert sent (PlusVibe status update pending manual approval)')
@@ -105,7 +105,7 @@ serve(async (req) => {
 
         // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `🚫 *Blocklist Request*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Add to PlusVibe blocklist and delete from campaigns._`,
         })
         actions.push('Slack: alert sent (blocklist action pending manual approval)')
@@ -118,7 +118,7 @@ serve(async (req) => {
 
         // 2. Slack alert (HUMAN REVIEW NEEDED)
         await sendSlackAlert(supabase, {
-          channel: 'vgg-alerts',
+          channel: 'sales-alerts',
           text: `⏰ *Future Request*\n*Lead:* ${contact_email}\n*Campaign:* ${campaign_name}\n*Follow-up Date:* ${follow_up_date}\n*Reply:* ${reply_preview}\n\n_Logged in Supabase. MANUAL: Update PlusVibe label + follow-up date, then mark as COMPLETED to stop current sequence._`,
         })
         actions.push('Slack: alert sent (PlusVibe follow-up action pending manual approval)')

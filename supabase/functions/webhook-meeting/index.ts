@@ -459,13 +459,13 @@ async function sendSlackAlert(supabase: any, client: any, text: string) {
       }).then(() => {})
       return
     }
-    try { await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#vgg-alerts', text }) }) }
+    try { await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#sales-alerts', text }) }) }
     catch (_) { /* skip */ }
     return
   }
 
-  // Send to client channel (if configured) + #vgg-alerts
-  const channels = ['#vgg-alerts']
+  // Send to client channel (if configured) + #sales-alerts
+  const channels = ['#sales-alerts']
   if (client?.slack_channel_id) {
     channels.unshift(client.slack_channel_id)
   }
