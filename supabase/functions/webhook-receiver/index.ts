@@ -374,29 +374,6 @@ serve(async (req) => {
           console.log(`[${requestId}] Email stored: ${emailId}`)
         }
 
-        // ── Call reply-classifier ──
-        const classifierUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reply-classifier`
-        await fetch(classifierUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-          },
-          body: JSON.stringify({
-            contact_id: contact?.id,
-            contact_email: leadEmail,
-            campaign_id: campaign?.id,
-            campaign_name: campaign?.name || campaignName,
-            client_id: clientId,
-            plusvibe_camp_id: plusvibeCampId,
-            reply_body: cleanedBody,
-            subject: subject,
-            first_name: firstName,
-            last_name: lastName,
-            company_name: companyName,
-          }),
-        })
-
         console.log(`Reply processed: ${leadEmail} | campaign: ${campaignName} | contact: ${contact?.id ? 'updated' : 'created'} | account: ${contact?.account_id || 'new'}`)
         break
       }
