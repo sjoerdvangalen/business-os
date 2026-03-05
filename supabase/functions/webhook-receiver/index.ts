@@ -42,6 +42,18 @@ function emailToDomain(email: string): string {
 }
 
 serve(async (req) => {
+  // ── Health check endpoint (for PlusVibe webhook verification) ──
+  if (req.method === 'GET') {
+    return new Response(
+      JSON.stringify({ 
+        status: 'ok', 
+        service: 'webhook-receiver',
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
