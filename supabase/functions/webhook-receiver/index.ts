@@ -65,7 +65,23 @@ serve(async (req) => {
 
   try {
     const payload = await req.json()
-    console.log('Webhook received:', JSON.stringify(payload).substring(0, 500))
+    const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+    console.log(`[${requestId}] Webhook received:`, JSON.stringify(payload).substring(0, 500))
+
+    // ── CRITICAL: Log EVERY webhook to database for debugging ──
+    const { error: logError } = await supabase.from('webhook_logs').insert({
+      source: 'plusvibe',
+      event_type: payload.webhook_event || payload.event || 'unknown',
+      payload: payload,
+      status: 'received',
+      request_id: requestId,
+    })
+    
+    if (logError) {
+      console.error(`[${requestId}] Failed to log webhook:`, logError.message)
+    } else {
+      console.log(`[${requestId}] Webhook logged to database`)
+    }
 
     // ── Extract PlusVibe webhook fields ──
     const eventType = payload.webhook_event || payload.event || payload.event_type || ''
@@ -260,7 +276,18 @@ serve(async (req) => {
         })
         
         if (insertResult.error) {
-          console.error('email_threads insert failed:', insertResult.error.message)
+          console.error(`[${requestId}] email_threads insert failed:`, insertResult.error.message)
+          // Log error to webhook_logs
+          await supabase.from('webhook_logs').insert({
+            source: 'plusvibe-error',
+            event_type: 'INSERT_ERROR',
+            payload: { error: insertResult.error.message, email_id: emailId, lead_email: leadEmail },
+            status: 'error',
+            error_message: insertResult.error.message,
+            request_id: requestId,
+          }).catch(() => {})
+        } else {
+          console.log(`[${requestId}] Email stored: ${emailId}`)
         }
 
         // ── Call reply-classifier ──
@@ -394,20 +421,21 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Webhook error:', (error as Error).message)
+    const errorMessage = (error as Error).message
+    console.error(`[${requestId}] Webhook error:`, errorMessage)
 
-    const supabaseForError = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
-    await supabaseForError.from('agent_memory').insert({
-      agent_id: 'webhook-receiver',
-      memory_type: 'webhook_error',
-      content: `Webhook error: ${(error as Error).message}`,
+    // Log error to webhook_logs
+    await supabase.from('webhook_logs').insert({
+      source: 'plusvibe-error',
+      event_type: 'EXCEPTION',
+      payload: payload,
+      status: 'error',
+      error_message: errorMessage,
+      request_id: requestId,
     }).catch(() => {})
 
     return new Response(
-      JSON.stringify({ success: false, error: (error as Error).message }),
+      JSON.stringify({ success: false, error: errorMessage, request_id: requestId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
