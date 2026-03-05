@@ -303,9 +303,6 @@ serve(async (req) => {
         // Use PlusVibe timestamp if available, otherwise current time
         const sentAt = payload.created_at || payload.modified_at || new Date().toISOString()
         
-        // Get HTML body - PlusVibe sends 'body' (HTML) and 'text_body' (plain)
-        const htmlBody = payload.body || payload.body_html || null
-        
         const insertResult = await supabase.from('email_threads').insert({
           plusvibe_id: emailId,
           thread_id: payload.thread_id || null,
@@ -318,10 +315,7 @@ serve(async (req) => {
           to_email: senderEmail,
           subject: subject,
           body_text: cleanedBody,
-          body_html: htmlBody,
-          content_preview: cleanedBody?.substring(0, 200),
           label: leadLabel || null,
-          is_unread: true,
           sent_at: sentAt,
         })
         
@@ -381,7 +375,6 @@ serve(async (req) => {
           to_email: leadEmail,
           subject: subject,
           body_text: payload.bounce_message || 'Bounced',
-          is_unread: true,
           sent_at: new Date().toISOString(),
         })
         
@@ -422,7 +415,6 @@ serve(async (req) => {
           to_email: leadEmail,
           subject: subject,
           body_text: payload.body || '',
-          is_unread: false,
           sent_at: new Date().toISOString(),
         })
         
