@@ -68,7 +68,7 @@ serve(async (req) => {
     console.log('Webhook received:', JSON.stringify(payload).substring(0, 500))
 
     // ── Extract PlusVibe webhook fields ──
-    const eventType = payload.event || payload.event_type || ''
+    const eventType = payload.webhook_event || payload.event || payload.event_type || ''
     const leadEmail = (payload.email || payload.lead_email || payload.to_email || '').toLowerCase().trim()
     const firstName = payload.first_name || ''
     const lastName = payload.last_name || ''
