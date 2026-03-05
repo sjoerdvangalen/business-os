@@ -102,6 +102,7 @@ serve(async (req) => {
     const senderLastName = payload.sender_last_name || ''
     const ccEmail = payload.cc_email || ''
     const plusvibeEmailAccountId = payload.email_account_id || ''
+    const leadLabel = payload.label || ''
     const plusvibeLastEmailId = payload.last_email_id || ''
 
     // ── 0. Find Email Inbox (by PlusVibe email_account_id) ──
@@ -295,6 +296,7 @@ serve(async (req) => {
           body_text: cleanedBody,
           body_html: htmlBody,
           content_preview: cleanedBody?.substring(0, 200),
+          label: leadLabel || null,
           is_unread: true,
           sent_at: sentAt,
         })
