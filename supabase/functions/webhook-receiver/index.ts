@@ -294,8 +294,9 @@ serve(async (req) => {
       // BOUNCE
       // ═══════════════════════════════════════════
       case eventType === 'BOUNCED_EMAIL': {
-        await supabase.from('email_threads').insert({
-          plusvibe_id: payload.email_id || `bounce-${Date.now()}`,
+        const bounceEmailId = payload.email_id || `bounce-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        const bounceResult = await supabase.from('email_threads').insert({
+          plusvibe_id: bounceEmailId,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
           direction: 'outbound',
@@ -306,6 +307,10 @@ serve(async (req) => {
           is_unread: true,
           sent_at: new Date().toISOString(),
         })
+        
+        if (bounceResult.error) {
+          console.error('BOUNCED_EMAIL insert failed:', bounceResult.error.message)
+        }
 
         if (contact) {
           await supabase.from('contacts').update({
@@ -330,8 +335,9 @@ serve(async (req) => {
       // EMAIL SENT
       // ═══════════════════════════════════════════
       case eventType === 'EMAIL_SENT': {
-        await supabase.from('email_threads').insert({
-          plusvibe_id: payload.email_id || `sent-${Date.now()}`,
+        const sentEmailId = payload.email_id || `sent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        const sentResult = await supabase.from('email_threads').insert({
+          plusvibe_id: sentEmailId,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
           direction: 'outbound',
@@ -342,6 +348,12 @@ serve(async (req) => {
           is_unread: false,
           sent_at: new Date().toISOString(),
         })
+        
+        if (sentResult.error) {
+          console.error('EMAIL_SENT insert failed:', sentResult.error.message)
+        } else {
+          console.log(`Email sent logged: ${sentEmailId} to ${leadEmail}`)
+        }
 
         if (contact && contact.lead_status === 'new') {
           await supabase.from('contacts').update({
