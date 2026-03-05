@@ -303,9 +303,49 @@ serve(async (req) => {
         // Use PlusVibe timestamp if available, otherwise current time
         const sentAt = payload.created_at || payload.modified_at || new Date().toISOString()
         
+        // ── Build full thread history ──
+        // Get all previous emails in this thread from our database
+        let fullThreadBody = cleanedBody
+        const threadId = payload.thread_id
+        
+        if (threadId) {
+          try {
+            const { data: previousEmails } = await supabase
+              .from('email_threads')
+              .select('from_email, body_text, sent_at, direction')
+              .eq('thread_id', threadId)
+              .order('sent_at', { ascending: true })
+            
+            if (previousEmails && previousEmails.length > 0) {
+              // Build thread conversation
+              const threadParts: string[] = []
+              threadParts.push('=== FULL EMAIL THREAD ===\n')
+              
+              for (const email of previousEmails) {
+                const date = new Date(email.sent_at).toLocaleString()
+                const sender = email.from_email
+                threadParts.push(`\n--- ${date} | ${sender} ---`)
+                threadParts.push(email.body_text || '')
+              }
+              
+              // Add current email at the end
+              const currentDate = new Date(sentAt).toLocaleString()
+              threadParts.push(`\n--- ${currentDate} | ${leadEmail} ---`)
+              threadParts.push(cleanedBody)
+              threadParts.push('\n=== END OF THREAD ===')
+              
+              fullThreadBody = threadParts.join('\n')
+              console.log(`[${requestId}] Built thread with ${previousEmails.length + 1} emails`)
+            }
+          } catch (threadError) {
+            console.error(`[${requestId}] Failed to build thread:`, threadError)
+            // Continue with just the current email body
+          }
+        }
+        
         const insertResult = await supabase.from('email_threads').insert({
           plusvibe_id: emailId,
-          thread_id: payload.thread_id || null,
+          thread_id: threadId || null,
           last_email_id: plusvibeLastEmailId || emailId,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
@@ -314,7 +354,7 @@ serve(async (req) => {
           from_email: leadEmail,
           to_email: senderEmail,
           subject: subject,
-          body_text: cleanedBody,
+          body_text: fullThreadBody,
           label: leadLabel || null,
           sent_at: sentAt,
         })
