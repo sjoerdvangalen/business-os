@@ -101,6 +101,19 @@ serve(async (req) => {
     const senderFirstName = payload.sender_first_name || ''
     const senderLastName = payload.sender_last_name || ''
     const ccEmail = payload.cc_email || ''
+    const plusvibeEmailAccountId = payload.email_account_id || ''
+    const plusvibeLastEmailId = payload.last_email_id || ''
+
+    // ── 0. Find Email Inbox (by PlusVibe email_account_id) ──
+    let emailInboxId: string | null = null
+    if (plusvibeEmailAccountId) {
+      const { data: inbox } = await supabase
+        .from('email_inboxes')
+        .select('id, email')
+        .eq('plusvibe_id', plusvibeEmailAccountId)
+        .single()
+      emailInboxId = inbox?.id || null
+    }
 
     // ── 1. Find Client (campaign_name first 4 chars = client_code) ──
     const clientCode = campaignName ? campaignName.slice(0, 4).trim().toUpperCase() : ''
@@ -271,8 +284,10 @@ serve(async (req) => {
         const insertResult = await supabase.from('email_threads').insert({
           plusvibe_id: emailId,
           thread_id: payload.thread_id || null,
+          last_email_id: plusvibeLastEmailId || emailId,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
+          email_inbox_id: emailInboxId,
           direction: 'inbound',
           from_email: leadEmail,
           to_email: senderEmail,
