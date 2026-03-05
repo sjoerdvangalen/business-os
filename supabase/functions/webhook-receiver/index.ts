@@ -259,9 +259,18 @@ serve(async (req) => {
         }
 
         // ── Store email message in email_threads ──
-        const emailId = payload.email_id || payload.id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        // Use PlusVibe email ID - last_email_id is the message ID for replies
+        const emailId = payload.last_email_id || payload.message_id || payload.email_id || payload.id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        
+        // Use PlusVibe timestamp if available, otherwise current time
+        const sentAt = payload.created_at || payload.modified_at || new Date().toISOString()
+        
+        // Get HTML body - PlusVibe sends 'body' (HTML) and 'text_body' (plain)
+        const htmlBody = payload.body || payload.body_html || null
+        
         const insertResult = await supabase.from('email_threads').insert({
           plusvibe_id: emailId,
+          thread_id: payload.thread_id || null,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
           direction: 'inbound',
@@ -269,10 +278,10 @@ serve(async (req) => {
           to_email: senderEmail,
           subject: subject,
           body_text: cleanedBody,
-          body_html: payload.body_html || null,
+          body_html: htmlBody,
           content_preview: cleanedBody?.substring(0, 200),
           is_unread: true,
-          sent_at: new Date().toISOString(),
+          sent_at: sentAt,
         })
         
         if (insertResult.error) {
