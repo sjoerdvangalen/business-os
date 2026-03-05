@@ -231,8 +231,9 @@ serve(async (req) => {
         }
 
         // ── Store email message in email_threads ──
-        await supabase.from('email_threads').insert({
-          plusvibe_id: payload.email_id || payload.id || `reply-${Date.now()}`,
+        const emailId = payload.email_id || payload.id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        const insertResult = await supabase.from('email_threads').insert({
+          plusvibe_id: emailId,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
           direction: 'inbound',
@@ -245,6 +246,10 @@ serve(async (req) => {
           is_unread: true,
           sent_at: new Date().toISOString(),
         })
+        
+        if (insertResult.error) {
+          console.error('email_threads insert failed:', insertResult.error.message)
+        }
 
         // ── Call reply-classifier ──
         const classifierUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reply-classifier`
