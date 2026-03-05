@@ -402,42 +402,10 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════
-      // BOUNCE
+      // BOUNCE - Deprecated, not processing bounces anymore
       // ═══════════════════════════════════════════
       case eventType === 'BOUNCED_EMAIL': {
-        const bounceEmailId = payload.email_id || `bounce-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-        const bounceResult = await supabase.from('email_threads').insert({
-          plusvibe_id: bounceEmailId,
-          contact_id: contact?.id,
-          campaign_id: campaign?.id,
-          direction: 'outbound',
-          from_email: senderEmail,
-          to_email: leadEmail,
-          subject: subject,
-          body_text: payload.bounce_message || 'Bounced',
-          sent_at: new Date().toISOString(),
-        })
-        
-        if (bounceResult.error) {
-          console.error('BOUNCED_EMAIL insert failed:', bounceResult.error.message)
-        }
-
-        if (contact) {
-          await supabase.from('contacts').update({
-            bounced: true,
-            bounce_message: payload.bounce_message || 'Bounced via webhook',
-            lead_status: 'bounced',
-          }).eq('id', contact.id)
-        }
-
-        await supabase.from('agent_memory').insert({
-          agent_id: 'webhook-receiver',
-          memory_type: 'bounce_alert',
-          content: `Bounce: ${leadEmail} in ${campaignName || plusvibeCampId}`,
-          metadata: { email: leadEmail, campaign: campaignName, bounce_message: payload.bounce_message },
-        })
-
-        console.log(`Bounce: ${leadEmail}`)
+        console.log(`[${requestId}] Bounce ignored: ${leadEmail}`)
         break
       }
 
