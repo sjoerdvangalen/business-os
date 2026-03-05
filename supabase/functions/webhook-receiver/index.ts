@@ -108,12 +108,16 @@ serve(async (req) => {
     // ── 0. Find Email Inbox (by PlusVibe email_account_id) ──
     let emailInboxId: string | null = null
     if (plusvibeEmailAccountId) {
-      const { data: inbox } = await supabase
-        .from('email_inboxes')
-        .select('id, email')
-        .eq('plusvibe_id', plusvibeEmailAccountId)
-        .single()
-      emailInboxId = inbox?.id || null
+      try {
+        const { data: inbox } = await supabase
+          .from('email_inboxes')
+          .select('id, email')
+          .eq('plusvibe_id', plusvibeEmailAccountId)
+          .single()
+        emailInboxId = inbox?.id || null
+      } catch {
+        emailInboxId = null
+      }
     }
 
     // ── 1. Find Client (campaign_name first 4 chars = client_code) ──
@@ -121,32 +125,44 @@ serve(async (req) => {
     let clientId: string | null = null
 
     if (clientCode) {
-      const { data: client } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('client_code', clientCode)
-        .single()
-      clientId = client?.id || null
+      try {
+        const { data: client } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('client_code', clientCode)
+          .single()
+        clientId = client?.id || null
+      } catch {
+        clientId = null
+      }
     }
 
     // ── 2. Find Campaign (by plusvibe_id or name) ──
     let campaign: { id: string; client_id: string; name: string } | null = null
 
     if (plusvibeCampId) {
-      const { data } = await supabase
-        .from('campaigns')
-        .select('id, client_id, name')
-        .eq('plusvibe_id', plusvibeCampId)
-        .single()
-      campaign = data
+      try {
+        const { data } = await supabase
+          .from('campaigns')
+          .select('id, client_id, name')
+          .eq('plusvibe_id', plusvibeCampId)
+          .single()
+        campaign = data
+      } catch {
+        campaign = null
+      }
     }
     if (!campaign && campaignName) {
-      const { data } = await supabase
-        .from('campaigns')
-        .select('id, client_id, name')
-        .eq('name', campaignName)
-        .single()
-      campaign = data
+      try {
+        const { data } = await supabase
+          .from('campaigns')
+          .select('id, client_id, name')
+          .eq('name', campaignName)
+          .single()
+        campaign = data
+      } catch {
+        campaign = null
+      }
     }
 
     // Use campaign's client_id if we didn't find one via client_code
@@ -158,22 +174,30 @@ serve(async (req) => {
     let contact: { id: string; account_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null = null
 
     if (leadEmail) {
-      const { data } = await supabase
-        .from('contacts')
-        .select('id, account_id, replied_count, lead_status, is_first_reply')
-        .eq('email', leadEmail)
-        .limit(1)
-        .single()
-      contact = data
+      try {
+        const { data } = await supabase
+          .from('contacts')
+          .select('id, account_id, replied_count, lead_status, is_first_reply')
+          .eq('email', leadEmail)
+          .limit(1)
+          .single()
+        contact = data
+      } catch {
+        contact = null
+      }
     }
     if (!contact && plusvibeLeadId) {
-      const { data } = await supabase
-        .from('contacts')
-        .select('id, account_id, replied_count, lead_status, is_first_reply')
-        .eq('plusvibe_lead_id', plusvibeLeadId)
-        .limit(1)
-        .single()
-      contact = data
+      try {
+        const { data } = await supabase
+          .from('contacts')
+          .select('id, account_id, replied_count, lead_status, is_first_reply')
+          .eq('plusvibe_lead_id', plusvibeLeadId)
+          .limit(1)
+          .single()
+        contact = data
+      } catch {
+        contact = null
+      }
     }
 
     // ── Handle event types ──
