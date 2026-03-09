@@ -341,7 +341,7 @@ serve(async (req) => {
         //   to_email / email_account_name = our inbox
         const replyPlusvideId = (payload.last_email_id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`) as string
         const replyMessageId = (payload.message_id || null) as string | null
-        const replyThreadId = (payload.thread_id || `${leadEmail}::${plusvibeCampId}`) as string
+        const replyThreadId = (payload.thread_id || null) as string | null
         const replySentAt = (payload.modified_at || new Date().toISOString()) as string
 
         const insertResult = await supabase.from('email_threads').insert({
@@ -368,33 +368,6 @@ serve(async (req) => {
           console.log(`[${requestId}] Reply stored: ${replyPlusvideId}`)
         }
 
-        // ── Call reply-classifier → lead-router for Slack alerts ──
-        if (contact) {
-          try {
-            const classifierUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reply-classifier`
-            await fetch(classifierUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-              },
-              body: JSON.stringify({
-                contact_id: contact.id,
-                contact_email: leadEmail,
-                campaign_id: campaign?.id,
-                campaign_name: campaignName,
-                client_id: clientId,
-                plusvibe_camp_id: plusvibeCampId,
-                reply_body: cleanedBody,
-                subject: subject,
-              }),
-            })
-            console.log(`[${requestId}] Reply-classifier called for ${leadEmail}`)
-          } catch (classifierError) {
-            console.error(`[${requestId}] Reply-classifier call failed:`, (classifierError as Error).message)
-          }
-        }
-
         console.log(`[${requestId}] Reply processed: ${leadEmail} | campaign: ${campaignName}`)
         break
       }
@@ -406,13 +379,13 @@ serve(async (req) => {
         // PlusVibe EMAIL_SENT fields:
         //   sent_email_id = PlusVibe's unique sent ID (use as plusvibe_id)
         //   message_id = SMTP Message-ID (use as plusvibe_message_id)
-        //   NO thread_id → generate as leadEmail::campId
+        //   thread_id = only if PlusVibe sends it (usually not for EMAIL_SENT)
         //   sent_on = send timestamp
         //   email_account_name = our inbox (sender/from)
         //   email / lead_email = lead's email (recipient/to)
         const sentPlusvideId = (payload.sent_email_id || `sent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`) as string
         const sentMessageId = (payload.message_id || null) as string | null
-        const sentThreadId = `${leadEmail}::${plusvibeCampId}`
+        const sentThreadId = (payload.thread_id || null) as string | null
         const sentAt = (payload.sent_on || new Date().toISOString()) as string
 
         const sentResult = await supabase.from('email_threads').insert({
