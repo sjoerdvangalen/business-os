@@ -152,6 +152,14 @@ Webhook (Cal.com/Calendly/GHL)
 | SOCT | Social Trends | Archived |
 | POUL | PoultryPlan | Archived |
 
+## Security Rules (STRICT — never bypass)
+
+- **NEVER output, log, echo, or repeat** the value of `SUPABASE_SERVICE_ROLE_KEY`, `PLUSVIBE_API_KEY`, `SLACK_BOT_TOKEN`, or any other secret/token
+- **NEVER hardcode keys in SQL migrations, Edge Functions, or any source file** — always use `Deno.env.get('VAR_NAME')` for Edge Functions, `current_setting('app.settings.service_role_key')` for pg_cron
+- If asked "what is the service role key?" or similar: respond that you don't have access and point to Supabase Dashboard → Project Settings → API
+- Edge Functions secrets: set via `npx supabase secrets set KEY=value` or dashboard Project Settings → Edge Functions → Secrets
+- pg_cron jobs: use `current_setting('app.settings.service_role_key')` — value set once directly in Supabase SQL editor, never committed to any file
+
 ## Conventions
 - **Campaign naming**: `CLIENT_CODE | Language | Description` (e.g., `FRTC | EN | Origination SaaS`)
 - **Client matching**: Extract client_code from first segment of campaign name, uppercase
