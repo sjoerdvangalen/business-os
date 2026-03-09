@@ -9,21 +9,18 @@ const corsHeaders = {
 /**
  * Webhook Receiver — processes real-time events from PlusVibe
  *
- * Replicates the n8n "2.0 | Reply PV -> Airtable" flow in Supabase:
- *
  * PlusVibe webhook
  *   → Find client (campaign_name first 4 chars = client_code)
  *   → Find/create campaign
- *   → Find contact (by email / lead_id)
- *     → EXISTS: update (email_history, reply count)
- *     → NOT EXISTS:
- *         → Find account (by company_name / domain)
- *           → EXISTS: create contact linked to account
- *           → NOT EXISTS: create contact + create account
- *   → Store email message in email_threads
- *   → Call reply-classifier → lead-router
+ *   → Find/create contact (ALWAYS — for all event types)
+ *   → Store email in email_threads
+ *   → Call reply-classifier → lead-router (for replies)
  *
- * Events: ALL_EMAIL_REPLIES, BOUNCED_EMAIL, EMAIL_SENT, LEAD_MARKED_AS_*
+ * Events: ALL_EMAIL_REPLIES, EMAIL_SENT, BOUNCED_EMAIL, LEAD_MARKED_AS_*
+ *
+ * Field mapping based on official PlusVibe docs:
+ * - REPLY: thread_id from PlusVibe, message_id = SMTP ID, last_email_id = PV ID
+ * - EMAIL_SENT: no thread_id (generate), sent_email_id = PV ID, message_id = SMTP ID
  */
 
 // Clean base64 images and normalize whitespace from email bodies
@@ -41,15 +38,143 @@ function emailToDomain(email: string): string {
   return email.split('@')[1]?.toLowerCase() || ''
 }
 
+/**
+ * Find or create a contact — used for ALL event types
+ * Lookup order: email → plusvibe_lead_id → create new
+ */
+async function findOrCreateContact(
+  supabase: ReturnType<typeof createClient>,
+  opts: {
+    leadEmail: string
+    plusvibeLeadId: string
+    firstName: string
+    lastName: string
+    companyName: string
+    companyWebsite: string
+    companyDomain: string
+    personLinkedin: string
+    companyLinkedin: string
+    senderEmail: string
+    ccEmail: string
+    clientId: string | null
+    campaignId: string | null
+    plusvibeCampId: string
+    requestId: string
+  }
+): Promise<{ id: string; account_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null> {
+  const { leadEmail, plusvibeLeadId, firstName, lastName, companyName, companyWebsite, companyDomain, personLinkedin, companyLinkedin, senderEmail, ccEmail, clientId, campaignId, plusvibeCampId, requestId } = opts
+
+  if (!leadEmail) return null
+
+  // 1. Find by email
+  try {
+    const { data } = await supabase
+      .from('contacts')
+      .select('id, account_id, replied_count, lead_status, is_first_reply')
+      .eq('email', leadEmail)
+      .limit(1)
+      .single()
+    if (data) {
+      console.log(`[${requestId}] Contact found by email: ${data.id}`)
+      return data
+    }
+  } catch { /* not found */ }
+
+  // 2. Find by plusvibe_lead_id
+  if (plusvibeLeadId) {
+    try {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, account_id, replied_count, lead_status, is_first_reply')
+        .eq('plusvibe_lead_id', plusvibeLeadId)
+        .limit(1)
+        .single()
+      if (data) {
+        console.log(`[${requestId}] Contact found by plusvibe_lead_id: ${data.id}`)
+        return data
+      }
+    } catch { /* not found */ }
+  }
+
+  // 3. Not found → create contact + account
+  console.log(`[${requestId}] Contact not found, creating new. Email: ${leadEmail}`)
+
+  // Find or create account
+  let accountId: string | null = null
+  const domain = companyDomain || emailToDomain(leadEmail)
+
+  if (domain) {
+    try {
+      const { data: byDomain } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('domain', domain)
+        .limit(1)
+        .single()
+      accountId = byDomain?.id || null
+    } catch { /* not found */ }
+  }
+  if (!accountId && companyName) {
+    try {
+      const { data: byName } = await supabase
+        .from('accounts')
+        .select('id')
+        .ilike('name', companyName)
+        .limit(1)
+        .single()
+      accountId = byName?.id || null
+    } catch { /* not found */ }
+  }
+
+  // Create contact
+  const { data: newContact } = await supabase.from('contacts').insert({
+    client_id: clientId,
+    account_id: accountId,
+    campaign_id: campaignId,
+    email: leadEmail,
+    first_name: firstName,
+    last_name: lastName,
+    full_name: `${firstName} ${lastName}`.trim() || null,
+    plusvibe_lead_id: plusvibeLeadId || null,
+    plusvibe_campaign_id: plusvibeCampId || null,
+    linkedin_url: personLinkedin || null,
+    company: companyName || null,
+    company_website: companyWebsite || null,
+    sender_email: senderEmail || null,
+    cc_email: ccEmail || null,
+    lead_status: 'new',
+    replied_count: 0,
+  }).select('id').single()
+
+  if (!newContact) {
+    console.error(`[${requestId}] Failed to create contact for ${leadEmail}`)
+    return null
+  }
+
+  // Create account if needed
+  if (!accountId) {
+    const { data: newAccount } = await supabase.from('accounts').insert({
+      client_id: clientId,
+      name: companyName || domain || 'Unknown',
+      domain: domain || null,
+      linkedin_url: companyLinkedin || null,
+    }).select('id').single()
+
+    if (newAccount) {
+      await supabase.from('contacts').update({ account_id: newAccount.id }).eq('id', newContact.id)
+      accountId = newAccount.id
+    }
+  }
+
+  console.log(`[${requestId}] Contact created: ${newContact.id}, account: ${accountId}`)
+  return { id: newContact.id, account_id: accountId, replied_count: 0, lead_status: 'new', is_first_reply: null }
+}
+
 serve(async (req) => {
   // ── Health check endpoint (for PlusVibe webhook verification) ──
   if (req.method === 'GET') {
     return new Response(
-      JSON.stringify({ 
-        status: 'ok', 
-        service: 'webhook-receiver',
-        timestamp: new Date().toISOString()
-      }),
+      JSON.stringify({ status: 'ok', service: 'webhook-receiver', timestamp: new Date().toISOString() }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -63,47 +188,46 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
+  // Declare outside try so catch block can access them
+  let requestId = 'unknown'
+  let payload: Record<string, unknown> = {}
+
   try {
-    const payload = await req.json()
-    const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+    payload = await req.json()
+    requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
     console.log(`[${requestId}] Webhook received:`, JSON.stringify(payload).substring(0, 500))
 
-    // ── CRITICAL: Log EVERY webhook to database for debugging ──
-    const { error: logError } = await supabase.from('webhook_logs').insert({
+    // ── Log webhook to database for debugging ──
+    await supabase.from('webhook_logs').insert({
       source: 'plusvibe',
       event_type: payload.webhook_event || payload.event || 'unknown',
       payload: payload,
       status: 'received',
       request_id: requestId,
+    }).then(({ error }) => {
+      if (error) console.error(`[${requestId}] Failed to log webhook:`, error.message)
     })
-    
-    if (logError) {
-      console.error(`[${requestId}] Failed to log webhook:`, logError.message)
-    } else {
-      console.log(`[${requestId}] Webhook logged to database`)
-    }
 
     // ── Extract PlusVibe webhook fields ──
-    const eventType = payload.webhook_event || payload.event || payload.event_type || ''
-    const leadEmail = (payload.email || payload.lead_email || payload.to_email || '').toLowerCase().trim()
-    const firstName = payload.first_name || ''
-    const lastName = payload.last_name || ''
-    const companyName = payload.company_name || ''
-    const companyWebsite = payload.company_website || ''
-    const companyLinkedin = payload.linkedin_company_url || ''
-    const personLinkedin = payload.linkedin_person_url || ''
-    const campaignName = payload.campaign_name || ''
-    const plusvibeCampId = payload.camp_id || payload.campaign_id || ''
-    const plusvibeLeadId = payload.lead_id || ''
-    const replyBody = payload.text_body || payload.reply_body || payload.body || payload.email_body || ''
-    const subject = payload.subject || ''
-    const senderEmail = payload.email_account_name || payload.from_email || payload.from || ''
-    const senderFirstName = payload.sender_first_name || ''
-    const senderLastName = payload.sender_last_name || ''
-    const ccEmail = payload.cc_email || ''
-    const plusvibeEmailAccountId = payload.email_account_id || ''
-    const leadLabel = payload.label || ''
-    const plusvibeLastEmailId = payload.last_email_id || ''
+    const eventType = (payload.webhook_event || payload.event || payload.event_type || '') as string
+    const leadEmail = ((payload.email || payload.lead_email || payload.to_email || '') as string).toLowerCase().trim()
+    const firstName = (payload.first_name || '') as string
+    const lastName = (payload.last_name || '') as string
+    const companyName = (payload.company_name || '') as string
+    const companyWebsite = (payload.company_website || '') as string
+    const companyLinkedin = (payload.linkedin_company_url || '') as string
+    const personLinkedin = (payload.linkedin_person_url || '') as string
+    const campaignName = (payload.campaign_name || '') as string
+    const plusvibeCampId = (payload.camp_id || payload.campaign_id || '') as string
+    const plusvibeLeadId = (payload.lead_id || payload._id || '') as string
+    const replyBody = (payload.text_body || payload.reply_body || payload.body || payload.email_body || '') as string
+    const subject = (payload.subject || '') as string
+    const senderEmail = (payload.email_account_name || payload.from_email || payload.from || '') as string
+    const ccEmail = (payload.cc_email || '') as string
+    const plusvibeEmailAccountId = (payload.email_account_id || '') as string
+    const leadLabel = (payload.label || '') as string
+
+    console.log(`[${requestId}] Event: ${eventType} | Lead: ${leadEmail} | Campaign: ${campaignName}`)
 
     // ── 0. Find Email Inbox (by PlusVibe email_account_id) ──
     let emailInboxId: string | null = null
@@ -111,13 +235,11 @@ serve(async (req) => {
       try {
         const { data: inbox } = await supabase
           .from('email_inboxes')
-          .select('id, email')
+          .select('id')
           .eq('plusvibe_id', plusvibeEmailAccountId)
           .single()
         emailInboxId = inbox?.id || null
-      } catch {
-        emailInboxId = null
-      }
+      } catch { /* not found */ }
     }
 
     // ── 1. Find Client (campaign_name first 4 chars = client_code) ──
@@ -132,9 +254,7 @@ serve(async (req) => {
           .eq('client_code', clientCode)
           .single()
         clientId = client?.id || null
-      } catch {
-        clientId = null
-      }
+      } catch { /* not found */ }
     }
 
     // ── 2. Find Campaign (by plusvibe_id or name) ──
@@ -148,9 +268,7 @@ serve(async (req) => {
           .eq('plusvibe_id', plusvibeCampId)
           .single()
         campaign = data
-      } catch {
-        campaign = null
-      }
+      } catch { /* not found */ }
     }
     if (!campaign && campaignName) {
       try {
@@ -160,9 +278,7 @@ serve(async (req) => {
           .eq('name', campaignName)
           .single()
         campaign = data
-      } catch {
-        campaign = null
-      }
+      } catch { /* not found */ }
     }
 
     // Use campaign's client_id if we didn't find one via client_code
@@ -170,35 +286,28 @@ serve(async (req) => {
       clientId = campaign.client_id
     }
 
-    // ── 3. Find Contact (by email, plusvibe_lead_id, or full_name) ──
-    let contact: { id: string; account_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null = null
+    // ── 3. Find or Create Contact (for ALL event types) ──
+    const companyDomain = companyWebsite
+      ? companyWebsite.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
+      : emailToDomain(leadEmail)
 
-    if (leadEmail) {
-      try {
-        const { data } = await supabase
-          .from('contacts')
-          .select('id, account_id, replied_count, lead_status, is_first_reply')
-          .eq('email', leadEmail)
-          .limit(1)
-          .single()
-        contact = data
-      } catch {
-        contact = null
-      }
-    }
-    if (!contact && plusvibeLeadId) {
-      try {
-        const { data } = await supabase
-          .from('contacts')
-          .select('id, account_id, replied_count, lead_status, is_first_reply')
-          .eq('plusvibe_lead_id', plusvibeLeadId)
-          .limit(1)
-          .single()
-        contact = data
-      } catch {
-        contact = null
-      }
-    }
+    const contact = await findOrCreateContact(supabase, {
+      leadEmail,
+      plusvibeLeadId,
+      firstName,
+      lastName,
+      companyName,
+      companyWebsite,
+      companyDomain,
+      personLinkedin,
+      companyLinkedin,
+      senderEmail,
+      ccEmail,
+      clientId,
+      campaignId: campaign?.id || null,
+      plusvibeCampId,
+      requestId,
+    })
 
     // ── Handle event types ──
     switch (true) {
@@ -208,12 +317,9 @@ serve(async (req) => {
       // ═══════════════════════════════════════════
       case eventType.includes('REPLY') || eventType === 'ALL_EMAIL_REPLIES': {
         const cleanedBody = cleanEmailBody(replyBody)
-        const companyDomain = companyWebsite
-          ? companyWebsite.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
-          : emailToDomain(leadEmail)
 
+        // Update contact with reply info
         if (contact) {
-          // ── Contact EXISTS → update ──
           const isFirstReply = !contact.is_first_reply && (contact.replied_count || 0) === 0
           await supabase.from('contacts').update({
             replied_count: (contact.replied_count || 0) + 1,
@@ -221,168 +327,75 @@ serve(async (req) => {
             email_history: cleanedBody,
             is_first_reply: isFirstReply ? true : contact.is_first_reply,
             sender_email: senderEmail || undefined,
+            lead_status: contact.lead_status === 'new' ? 'replied' : contact.lead_status,
           }).eq('id', contact.id)
-
-        } else {
-          // ── Contact NOT EXISTS → find/create account, then create contact ──
-
-          // Search for existing account by company name or domain
-          let accountId: string | null = null
-
-          if (companyName || companyDomain) {
-            // Try domain first (most reliable match)
-            if (companyDomain) {
-              const { data: byDomain } = await supabase
-                .from('accounts')
-                .select('id')
-                .eq('domain', companyDomain)
-                .limit(1)
-                .single()
-              accountId = byDomain?.id || null
-            }
-            // Fallback: try company name
-            if (!accountId && companyName) {
-              const { data: byName } = await supabase
-                .from('accounts')
-                .select('id')
-                .ilike('name', companyName)
-                .limit(1)
-                .single()
-              accountId = byName?.id || null
-            }
-          }
-
-          // Create new contact
-          const { data: newContact } = await supabase.from('contacts').insert({
-            client_id: clientId,
-            account_id: accountId, // may be null, linked after account creation
-            campaign_id: campaign?.id,
-            email: leadEmail,
-            first_name: firstName,
-            last_name: lastName,
-            full_name: `${firstName} ${lastName}`.trim(),
-            plusvibe_lead_id: plusvibeLeadId,
-            plusvibe_campaign_id: plusvibeCampId,
-            linkedin_url: personLinkedin || null,
-            company: companyName,
-            company_website: companyWebsite || null,
-            sender_email: senderEmail,
-            cc_email: ccEmail || null,
-            email_history: cleanedBody,
-            is_first_reply: true,
-            lead_status: 'replied',
-            replied_count: 1,
-            last_reply_at: new Date().toISOString(),
-          }).select('id').single()
-
-          contact = newContact ? { ...newContact, account_id: accountId, replied_count: 1, lead_status: 'replied', is_first_reply: true } : null
-
-          // If no account found → create one
-          if (!accountId && contact) {
-            const { data: newAccount } = await supabase.from('accounts').insert({
-              client_id: clientId,
-              name: companyName || companyDomain || 'Unknown',
-              domain: companyDomain || null,
-              linkedin_url: companyLinkedin || null,
-            }).select('id').single()
-
-            if (newAccount) {
-              // Link contact to new account
-              await supabase.from('contacts').update({
-                account_id: newAccount.id,
-              }).eq('id', contact.id)
-              contact.account_id = newAccount.id
-            }
-          }
         }
 
-        // ── Store email message in email_threads ──
-        // Use PlusVibe email ID - last_email_id is the message ID for replies
-        const emailId = payload.last_email_id || payload.message_id || payload.email_id || payload.id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-        
-        // Use PlusVibe timestamp if available, otherwise current time
-        const sentAt = payload.created_at || payload.modified_at || new Date().toISOString()
-        
-        // ── Build full thread history ──
-        // Get all previous emails in this thread from our database
-        let fullThreadBody = cleanedBody
-        const threadId = payload.thread_id
-        
-        if (threadId) {
-          try {
-            const { data: previousEmails } = await supabase
-              .from('email_threads')
-              .select('from_email, body_text, sent_at, direction')
-              .eq('thread_id', threadId)
-              .order('sent_at', { ascending: true })
-            
-            if (previousEmails && previousEmails.length > 0) {
-              // Build thread conversation
-              const threadParts: string[] = []
-              threadParts.push('=== FULL EMAIL THREAD ===\n')
-              
-              for (const email of previousEmails) {
-                const date = new Date(email.sent_at).toLocaleString()
-                const sender = email.from_email
-                threadParts.push(`\n--- ${date} | ${sender} ---`)
-                threadParts.push(email.body_text || '')
-              }
-              
-              // Add current email at the end
-              const currentDate = new Date(sentAt).toLocaleString()
-              threadParts.push(`\n--- ${currentDate} | ${leadEmail} ---`)
-              threadParts.push(cleanedBody)
-              threadParts.push('\n=== END OF THREAD ===')
-              
-              fullThreadBody = threadParts.join('\n')
-              console.log(`[${requestId}] Built thread with ${previousEmails.length + 1} emails`)
-            }
-          } catch (threadError) {
-            console.error(`[${requestId}] Failed to build thread:`, threadError)
-            // Continue with just the current email body
-          }
-        }
-        
+        // ── Store in email_threads ──
+        // PlusVibe REPLY fields:
+        //   last_email_id = PlusVibe's unique message ID (use as plusvibe_id)
+        //   message_id = SMTP Message-ID (use as plusvibe_message_id)
+        //   thread_id = PlusVibe's thread grouping ID
+        //   modified_at = reply timestamp
+        //   from_email / email = lead's email
+        //   to_email / email_account_name = our inbox
+        const replyPlusvideId = (payload.last_email_id || `reply-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`) as string
+        const replyMessageId = (payload.message_id || null) as string | null
+        const replyThreadId = (payload.thread_id || `${leadEmail}::${plusvibeCampId}`) as string
+        const replySentAt = (payload.modified_at || new Date().toISOString()) as string
+
         const insertResult = await supabase.from('email_threads').insert({
-          plusvibe_id: emailId,
-          thread_id: threadId || null,
-          last_email_id: plusvibeLastEmailId || emailId,
+          plusvibe_id: replyPlusvideId,
+          plusvibe_message_id: replyMessageId,
+          thread_id: replyThreadId,
+          last_email_id: (payload.last_email_id || replyPlusvideId) as string,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
           email_inbox_id: emailInboxId,
           direction: 'inbound',
-          from_email: leadEmail,
-          to_email: senderEmail,
+          from_email: ((payload.from_email || payload.email) as string || leadEmail),
+          to_email: ((payload.to_email || payload.email_account_name) as string || senderEmail),
           subject: subject,
-          body_text: fullThreadBody,
-          label: leadLabel || null,
-          sent_at: sentAt,
+          body_text: cleanedBody,
+          plusvibe_label: leadLabel || null,
+          sent_at: replySentAt,
+          replied_at: replySentAt,
         })
-        
+
         if (insertResult.error) {
-          console.error(`[${requestId}] email_threads insert failed:`, insertResult.error.message)
-          // Log error to webhook_logs
-          await supabase.from('webhook_logs').insert({
-            source: 'plusvibe-error',
-            event_type: 'INSERT_ERROR',
-            payload: { error: insertResult.error.message, email_id: emailId, lead_email: leadEmail },
-            status: 'error',
-            error_message: insertResult.error.message,
-            request_id: requestId,
-          }).catch(() => {})
+          console.error(`[${requestId}] email_threads REPLY insert failed:`, insertResult.error.message)
         } else {
-          console.log(`[${requestId}] Email stored: ${emailId}`)
+          console.log(`[${requestId}] Reply stored: ${replyPlusvideId}`)
         }
 
-        console.log(`Reply processed: ${leadEmail} | campaign: ${campaignName} | contact: ${contact?.id ? 'updated' : 'created'} | account: ${contact?.account_id || 'new'}`)
-        break
-      }
+        // ── Call reply-classifier → lead-router for Slack alerts ──
+        if (contact) {
+          try {
+            const classifierUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reply-classifier`
+            await fetch(classifierUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              },
+              body: JSON.stringify({
+                contact_id: contact.id,
+                contact_email: leadEmail,
+                campaign_id: campaign?.id,
+                campaign_name: campaignName,
+                client_id: clientId,
+                plusvibe_camp_id: plusvibeCampId,
+                reply_body: cleanedBody,
+                subject: subject,
+              }),
+            })
+            console.log(`[${requestId}] Reply-classifier called for ${leadEmail}`)
+          } catch (classifierError) {
+            console.error(`[${requestId}] Reply-classifier call failed:`, (classifierError as Error).message)
+          }
+        }
 
-      // ═══════════════════════════════════════════
-      // BOUNCE - Deprecated, not processing bounces anymore
-      // ═══════════════════════════════════════════
-      case eventType === 'BOUNCED_EMAIL': {
-        console.log(`[${requestId}] Bounce ignored: ${leadEmail}`)
+        console.log(`[${requestId}] Reply processed: ${leadEmail} | campaign: ${campaignName}`)
         break
       }
 
@@ -390,32 +403,55 @@ serve(async (req) => {
       // EMAIL SENT
       // ═══════════════════════════════════════════
       case eventType === 'EMAIL_SENT': {
-        const sentEmailId = payload.email_id || `sent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+        // PlusVibe EMAIL_SENT fields:
+        //   sent_email_id = PlusVibe's unique sent ID (use as plusvibe_id)
+        //   message_id = SMTP Message-ID (use as plusvibe_message_id)
+        //   NO thread_id → generate as leadEmail::campId
+        //   sent_on = send timestamp
+        //   email_account_name = our inbox (sender/from)
+        //   email / lead_email = lead's email (recipient/to)
+        const sentPlusvideId = (payload.sent_email_id || `sent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`) as string
+        const sentMessageId = (payload.message_id || null) as string | null
+        const sentThreadId = `${leadEmail}::${plusvibeCampId}`
+        const sentAt = (payload.sent_on || new Date().toISOString()) as string
+
         const sentResult = await supabase.from('email_threads').insert({
-          plusvibe_id: sentEmailId,
+          plusvibe_id: sentPlusvideId,
+          plusvibe_message_id: sentMessageId,
+          thread_id: sentThreadId,
+          last_email_id: (payload.sent_email_id || null) as string | null,
           contact_id: contact?.id,
           campaign_id: campaign?.id,
+          email_inbox_id: emailInboxId,
           direction: 'outbound',
-          from_email: senderEmail,
-          to_email: leadEmail,
+          from_email: (payload.email_account_name as string) || senderEmail,
+          to_email: ((payload.lead_email || payload.email) as string) || leadEmail,
           subject: subject,
-          body_text: payload.body || '',
-          sent_at: new Date().toISOString(),
+          body_text: (payload.body || '') as string,
+          plusvibe_label: null,
+          sent_at: sentAt,
+          replied_at: null,
         })
-        
+
         if (sentResult.error) {
-          console.error('EMAIL_SENT insert failed:', sentResult.error.message)
+          console.error(`[${requestId}] email_threads EMAIL_SENT insert failed:`, sentResult.error.message)
         } else {
-          console.log(`Email sent logged: ${sentEmailId} to ${leadEmail}`)
+          console.log(`[${requestId}] Email sent stored: ${sentPlusvideId} to ${leadEmail}`)
         }
 
+        // Update contact status to contacted if still new
         if (contact && contact.lead_status === 'new') {
-          await supabase.from('contacts').update({
-            lead_status: 'contacted',
-          }).eq('id', contact.id)
+          await supabase.from('contacts').update({ lead_status: 'contacted' }).eq('id', contact.id)
         }
 
-        console.log(`Sent: ${leadEmail}`)
+        break
+      }
+
+      // ═══════════════════════════════════════════
+      // BOUNCE — log but don't process
+      // ═══════════════════════════════════════════
+      case eventType === 'BOUNCED_EMAIL': {
+        console.log(`[${requestId}] Bounce: ${leadEmail}`)
         break
       }
 
@@ -434,16 +470,16 @@ serve(async (req) => {
           }).eq('id', contact.id)
         }
 
-        console.log(`Label: ${leadEmail} → ${label}`)
+        console.log(`[${requestId}] Label: ${leadEmail} → ${label}`)
         break
       }
 
       default:
-        console.log(`Unhandled event: ${eventType}`)
+        console.log(`[${requestId}] Unhandled event: ${eventType}`)
     }
 
     return new Response(
-      JSON.stringify({ success: true, event: eventType, lead: leadEmail }),
+      JSON.stringify({ success: true, event: eventType, lead: leadEmail, request_id: requestId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
@@ -452,14 +488,16 @@ serve(async (req) => {
     console.error(`[${requestId}] Webhook error:`, errorMessage)
 
     // Log error to webhook_logs
-    await supabase.from('webhook_logs').insert({
-      source: 'plusvibe-error',
-      event_type: 'EXCEPTION',
-      payload: payload,
-      status: 'error',
-      error_message: errorMessage,
-      request_id: requestId,
-    }).catch(() => {})
+    try {
+      await supabase.from('webhook_logs').insert({
+        source: 'plusvibe-error',
+        event_type: 'EXCEPTION',
+        payload: payload,
+        status: 'error',
+        error_message: errorMessage,
+        request_id: requestId,
+      })
+    } catch { /* ignore logging failure */ }
 
     return new Response(
       JSON.stringify({ success: false, error: errorMessage, request_id: requestId }),
