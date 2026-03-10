@@ -42,6 +42,12 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │   └── outbound-playbook.md           # Core playbook — ALL outbound decisions start here
 ├── research/                          # Client research .md files (1 per client)
 │   └── FRTC.md, BETS.md, etc.
+├── dashboard/                         # Next.js dashboard (Vercel)
+│   ├── app/(dashboard)/page.tsx       # Command Center
+│   ├── app/login/page.tsx             # Auth login page
+│   ├── app/components/                # Shared UI components
+│   ├── lib/supabase/                  # Supabase client helpers
+│   └── middleware.ts                  # Auth middleware
 ├── supabase/
 │   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push`)
 │   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
@@ -52,11 +58,11 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │       ├── sync-domains/              # Daily — domain health from email accounts
 │       ├── sync-sequences/            # Every 15 min — email sequences from PlusVibe
 │       ├── webhook-receiver/          # Real-time PlusVibe webhook events
-│       ├── reply-classifier/          # Classifies replies (called by webhook-receiver)
-│       ├── lead-router/               # Routes classified leads (called by reply-classifier)
+│       ├── lead-router/               # Routes leads based on PlusVibe labels
 │       ├── webhook-meeting/           # Multi-provider meeting webhook (Cal.com, Calendly, GHL)
 │       ├── meeting-review/            # Cron */5 min — sends Slack Block Kit review after meetings
 │       ├── webhook-slack-interaction/ # Slack button/modal handler for meeting reviews
+│       ├── populate-daily-kpis/       # Daily KPI aggregation from PlusVibe analytics
 │       ├── campaign-monitor/          # Health checks every 15 min
 │       └── domain-monitor/            # Deliverability check daily at 06:00 UTC
 └── sync/
@@ -120,7 +126,7 @@ Webhook (Cal.com/Calendly/GHL)
 ```
 
 ### Agent Architecture
-- **Reply pipeline**: PlusVibe webhooks → `webhook-receiver` → `reply-classifier` → `lead-router` → PlusVibe API + Slack
+- **Reply pipeline**: PlusVibe webhooks → `webhook-receiver` → stores in email_threads + contacts → `lead-router` → PlusVibe API + Slack
 - **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + PlusVibe API + Slack
 - **Monitoring**: `campaign-monitor` (*/15 min), `domain-monitor` (daily)
 - **Syncs**: campaigns, accounts, leads (*/15 min), warmup + domains (daily), sequences (*/15 min)
