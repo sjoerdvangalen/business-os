@@ -64,7 +64,11 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │       ├── webhook-slack-interaction/ # Slack button/modal handler for meeting reviews
 │       ├── populate-daily-kpis/       # Daily KPI aggregation from PlusVibe analytics
 │       ├── campaign-monitor/          # Health checks every 15 min
-│       └── domain-monitor/            # Deliverability check daily at 06:00 UTC
+│       ├── domain-monitor/            # Deliverability check daily at 06:00 UTC
+│       ├── email-waterfall/           # TryKitt email verification (patterns)
+│       ├── ai-enrich-contact/         # AI enrichment for contacts
+│       ├── process-gmaps-batch/       # Process Google Maps scraper batches
+│       └── find-contacts/             # A-Leads contact finder for companies
 └── sync/
     └── import-airtable.ts             # One-time import script (already run)
 ```
@@ -130,6 +134,28 @@ Webhook (Cal.com/Calendly/GHL)
 - **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + PlusVibe API + Slack
 - **Monitoring**: `campaign-monitor` (*/15 min), `domain-monitor` (daily)
 - **Syncs**: campaigns, accounts, leads (*/15 min), warmup + domains (daily), sequences (*/15 min)
+
+### Lead Generation Pipeline (NEW — ZONDER Clay)
+```
+Google Maps Scraper → process-gmaps-batch → companies table
+  → find-contacts (A-Leads API) → contacts table
+    → email-waterfall (TryKitt patterns) → verified email
+      → ai-enrich-contact (Kimi AI) → personalization data
+        → PlusVibe API → campaigns
+```
+
+**APIs Used:**
+- **A-Leads** — Contact finder (better than Apollo)
+- **TryKitt** — Email verification with pattern matching
+- **Kimi (via CCR)** — AI enrichment
+
+**Cost per 1000 leads:** ~€3.50 (vs Clay €50+)
+
+**Edge Functions:**
+- `process-gmaps-batch` — Receives batches from GMaps scraper
+- `find-contacts` — A-Leads API integration
+- `email-waterfall` — TryKitt verification (first@, f.last@ patterns)
+- `ai-enrich-contact` — AI research for personalization
 
 ## Clients (active)
 | Code | Name | What they do | Calendar |

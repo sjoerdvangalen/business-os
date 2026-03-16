@@ -19,6 +19,24 @@ const TRY_KITT_API_KEY = Deno.env.get('TRYKITT_API_KEY');
 npx supabase secrets set TRYKITT_API_KEY=VMOnRBKsLQK2WmCu9ms7TqdeAjciQd
 ```
 
+## A-Leads Contact Finder
+
+**Locatie**: `~/.claude/.env` (globaal)
+**Key**: `ALEADS_API_KEY`
+
+### Documentatie
+- API Docs: https://docs.a-leads.co/reference/
+
+### Gebruik in Edge Functions
+```typescript
+const ALEADS_API_KEY = Deno.env.get('ALEADS_API_KEY');
+```
+
+### Deploy secrets naar Supabase
+```bash
+npx supabase secrets set ALEADS_API_KEY=7871c1618fc87218e924633d3aa0e212
+```
+
 ## Overige Keys
 
 | Service | Key Name | Locatie |
