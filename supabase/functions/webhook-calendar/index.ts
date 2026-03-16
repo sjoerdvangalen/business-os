@@ -56,7 +56,7 @@ serve(async (req) => {
     let contact = null
     if (attendeeEmail) {
       const { data } = await supabase
-        .from('contacts')
+        .from('leads')
         .select('id, email, first_name, last_name, client_id, campaign_id')
         .eq('email', attendeeEmail.toLowerCase())
         .limit(1)
@@ -72,7 +72,7 @@ serve(async (req) => {
         // Insert new meeting
         const { error } = await supabase.from('meetings').insert({
           client_id: clientId,
-          contact_id: contact?.id || null,
+          lead_id: contact?.id || null,
           calcom_booking_id: bookingId,
           calcom_event_type: eventType,
           title: title || `Meeting with ${attendeeName}`,
@@ -92,7 +92,7 @@ serve(async (req) => {
 
         // Update contact status if matched
         if (contact) {
-          await supabase.from('contacts').update({
+          await supabase.from('leads').update({
             lead_status: 'meeting_booked',
           }).eq('id', contact.id)
         }

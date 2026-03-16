@@ -40,7 +40,7 @@ serve(async (req) => {
 
     // Pre-load existing contacts by plusvibe_lead_id for dedup
     const { data: existingContacts } = await supabase
-      .from('contacts')
+      .from('leads')
       .select('id, plusvibe_lead_id, email')
     const byPlusvibeId = new Map<string, string>()
     const byEmail = new Map<string, string>()
@@ -115,7 +115,7 @@ serve(async (req) => {
 
           if (existing) {
             const { error } = await supabase
-              .from('contacts')
+              .from('leads')
               .update(contactData)
               .eq('id', existing)
             if (error) {
@@ -126,7 +126,7 @@ serve(async (req) => {
             }
           } else {
             const { error } = await supabase
-              .from('contacts')
+              .from('leads')
               .insert(contactData)
             if (error) {
               console.error(`Insert failed for "${lead.email}":`, error.message)
@@ -159,7 +159,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'contacts',
+      table_name: 'leads',
       operation: 'full_sync',
       records_processed: created + updated + skipped + failed,
       records_created: created,
@@ -179,7 +179,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'contacts',
+      table_name: 'leads',
       operation: 'full_sync',
       records_failed: 1,
       error_message: (error as Error).message,

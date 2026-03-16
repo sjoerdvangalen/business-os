@@ -36,7 +36,7 @@ serve(async (req: Request) => {
       .select(`
         id, name, start_time, end_time, booking_status, attendee_email, attendee_name,
         review_scheduled_at, opportunity_id,
-        contact_id, client_id
+        lead_id, client_id
       `)
       .lte('review_scheduled_at', new Date().toISOString())
       .in('booking_status', ['booked', 'rescheduled'])
@@ -60,11 +60,11 @@ serve(async (req: Request) => {
       try {
         // Get contact details
         let contact: any = null
-        if (meeting.contact_id) {
+        if (meeting.lead_id) {
           const { data } = await supabase
-            .from('contacts')
+            .from('leads')
             .select('first_name, last_name, full_name, email, company_name, company_domain')
-            .eq('id', meeting.contact_id)
+            .eq('id', meeting.lead_id)
             .maybeSingle()
           contact = data
         }

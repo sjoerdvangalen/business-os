@@ -1,0 +1,12 @@
+{
+  "name": "business-os-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "import-csv": "bun run bulk-import-csv.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "csv-parse": "^5.5.6"
+  }
+}

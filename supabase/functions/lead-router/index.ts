@@ -55,7 +55,7 @@ serve(async (req) => {
         // 1. Create opportunity in Supabase
         await supabase.from('opportunities').insert({
           client_id,
-          contact_id,
+          lead_id: contact_id,
           campaign_id,
           stage: 'meeting_booked',
           source: 'cold_email',

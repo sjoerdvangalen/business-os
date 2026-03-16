@@ -25,8 +25,9 @@ type ClientRow = {
   domain_count: number
   meetings_30d: number
   qualified_30d: number
+  total_leads: number
+  interested_leads: number
   total_contacts: number
-  interested_contacts: number
 }
 
 type AlertRow = {

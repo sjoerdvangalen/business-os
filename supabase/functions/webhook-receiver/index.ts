@@ -61,7 +61,7 @@ async function findOrCreateContact(
     plusvibeCampId: string
     requestId: string
   }
-): Promise<{ id: string; account_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null> {
+): Promise<{ id: string; company_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null> {
   const { leadEmail, plusvibeLeadId, firstName, lastName, companyName, companyWebsite, companyDomain, personLinkedin, companyLinkedin, senderEmail, ccEmail, clientId, campaignId, plusvibeCampId, requestId } = opts
 
   if (!leadEmail) return null
@@ -69,8 +69,8 @@ async function findOrCreateContact(
   // 1. Find by email
   try {
     const { data } = await supabase
-      .from('contacts')
-      .select('id, account_id, replied_count, lead_status, is_first_reply')
+      .from('leads')
+      .select('id, company_id, replied_count, lead_status, is_first_reply')
       .eq('email', leadEmail)
       .limit(1)
       .single()
@@ -84,8 +84,8 @@ async function findOrCreateContact(
   if (plusvibeLeadId) {
     try {
       const { data } = await supabase
-        .from('contacts')
-        .select('id, account_id, replied_count, lead_status, is_first_reply')
+        .from('leads')
+        .select('id, company_id, replied_count, lead_status, is_first_reply')
         .eq('plusvibe_lead_id', plusvibeLeadId)
         .limit(1)
         .single()
@@ -106,7 +106,7 @@ async function findOrCreateContact(
   if (domain) {
     try {
       const { data: byDomain } = await supabase
-        .from('accounts')
+        .from('companies')
         .select('id')
         .eq('domain', domain)
         .limit(1)
@@ -117,7 +117,7 @@ async function findOrCreateContact(
   if (!accountId && companyName) {
     try {
       const { data: byName } = await supabase
-        .from('accounts')
+        .from('companies')
         .select('id')
         .ilike('name', companyName)
         .limit(1)
@@ -127,9 +127,9 @@ async function findOrCreateContact(
   }
 
   // Create contact
-  const { data: newContact } = await supabase.from('contacts').insert({
+  const { data: newContact } = await supabase.from('leads').insert({
     client_id: clientId,
-    account_id: accountId,
+    company_id: accountId,
     campaign_id: campaignId,
     email: leadEmail,
     first_name: firstName,
@@ -153,7 +153,7 @@ async function findOrCreateContact(
 
   // Create account if needed
   if (!accountId) {
-    const { data: newAccount } = await supabase.from('accounts').insert({
+    const { data: newAccount } = await supabase.from('companies').insert({
       client_id: clientId,
       name: companyName || domain || 'Unknown',
       domain: domain || null,
@@ -161,13 +161,13 @@ async function findOrCreateContact(
     }).select('id').single()
 
     if (newAccount) {
-      await supabase.from('contacts').update({ account_id: newAccount.id }).eq('id', newContact.id)
+      await supabase.from('leads').update({ company_id: newAccount.id }).eq('id', newContact.id)
       accountId = newAccount.id
     }
   }
 
   console.log(`[${requestId}] Contact created: ${newContact.id}, account: ${accountId}`)
-  return { id: newContact.id, account_id: accountId, replied_count: 0, lead_status: 'new', is_first_reply: null }
+  return { id: newContact.id, company_id: accountId, replied_count: 0, lead_status: 'new', is_first_reply: null }
 }
 
 serve(async (req) => {
@@ -224,12 +224,12 @@ serve(async (req) => {
     const subject = (payload.subject || '') as string
     const senderEmail = (payload.email_account_name || payload.from_email || payload.from || '') as string
     const ccEmail = (payload.cc_email || '') as string
-    const plusvibeEmailAccountId = (payload.email_account_id || '') as string
+    const plusvibeEmailAccountId = (payload.email_company_id || '') as string
     const leadLabel = (payload.label || '') as string
 
     console.log(`[${requestId}] Event: ${eventType} | Lead: ${leadEmail} | Campaign: ${campaignName}`)
 
-    // ── 0. Find Email Inbox (by PlusVibe email_account_id) ──
+    // ── 0. Find Email Inbox (by PlusVibe email_company_id) ──
     let emailInboxId: string | null = null
     if (plusvibeEmailAccountId) {
       try {
@@ -321,7 +321,7 @@ serve(async (req) => {
         // Update contact with reply info
         if (contact) {
           const isFirstReply = !contact.is_first_reply && (contact.replied_count || 0) === 0
-          await supabase.from('contacts').update({
+          await supabase.from('leads').update({
             replied_count: (contact.replied_count || 0) + 1,
             last_reply_at: new Date().toISOString(),
             email_history: cleanedBody,
@@ -349,7 +349,7 @@ serve(async (req) => {
           plusvibe_message_id: replyMessageId,
           thread_id: replyThreadId,
           last_email_id: (payload.last_email_id || replyPlusvideId) as string,
-          contact_id: contact?.id,
+          lead_id: contact?.id,
           campaign_id: campaign?.id,
           email_inbox_id: emailInboxId,
           direction: 'inbound',
@@ -393,7 +393,7 @@ serve(async (req) => {
           plusvibe_message_id: sentMessageId,
           thread_id: sentThreadId,
           last_email_id: (payload.sent_email_id || null) as string | null,
-          contact_id: contact?.id,
+          lead_id: contact?.id,
           campaign_id: campaign?.id,
           email_inbox_id: emailInboxId,
           direction: 'outbound',
@@ -414,7 +414,7 @@ serve(async (req) => {
 
         // Update contact status to contacted if still new
         if (contact && contact.lead_status === 'new') {
-          await supabase.from('contacts').update({ lead_status: 'contacted' }).eq('id', contact.id)
+          await supabase.from('leads').update({ lead_status: 'contacted' }).eq('id', contact.id)
         }
 
         break
@@ -435,7 +435,7 @@ serve(async (req) => {
         const label = eventType.replace('LEAD_MARKED_AS_', '')
 
         if (contact) {
-          await supabase.from('contacts').update({
+          await supabase.from('leads').update({
             label: label,
             lead_status: label.toLowerCase().includes('interested') ? 'interested'
               : label.toLowerCase().includes('meeting') ? 'meeting_booked'

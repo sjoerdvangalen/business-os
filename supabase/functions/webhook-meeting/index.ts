@@ -149,7 +149,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   let contact: any = null
   if (n.attendeeEmail) {
     const { data } = await supabase
-      .from('contacts')
+      .from('leads')
       .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
       .eq('email', n.attendeeEmail.toLowerCase())
       .limit(1)
@@ -159,7 +159,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
 
   if (!contact && n.attendeeName && client?.id) {
     const { data } = await supabase
-      .from('contacts')
+      .from('leads')
       .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
       .eq('client_id', client.id)
       .eq('full_name', n.attendeeName)
@@ -176,7 +176,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
 
   // Update contact
   if (contact) {
-    await supabase.from('contacts').update({
+    await supabase.from('leads').update({
       lead_status: 'meeting_booked', label: 'MEETING_BOOKED',
     }).eq('id', contact.id)
   }
@@ -190,7 +190,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   if (contact?.id && client?.id) {
     const { data: existing } = await supabase.from('opportunities')
       .select('id, status')
-      .eq('contact_id', contact.id)
+      .eq('lead_id', contact.id)
       .eq('client_id', client.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -208,7 +208,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     // Create new opportunity
     const { data: newOpp, error: oppErr } = await supabase.from('opportunities').insert({
       client_id: client?.id || null,
-      contact_id: contact?.id || null,
+      lead_id: contact?.id || null,
       campaign_id: contact?.campaign_id || null,
       name: companyName,
       status: 'meeting_booked',
@@ -229,7 +229,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
   // Create meeting (link to opportunity)
   const { data: meeting, error: meetErr } = await supabase.from('meetings').insert({
     client_id: client?.id || null,
-    contact_id: contact?.id || null,
+    lead_id: contact?.id || null,
     opportunity_id: opp?.id || null,
     integration_id: integration.id,
     integration_type: integration.integration_type,
@@ -420,7 +420,7 @@ async function updatePlusVibeByDomain(supabase: any, email: string) {
   try {
     const domain = email.split('@')[1]
     if (!domain) return
-    const { data } = await supabase.from('contacts').select('email, plusvibe_campaign_id')
+    const { data } = await supabase.from('leads').select('email, plusvibe_campaign_id')
       .like('email', `%@${domain}`).not('plusvibe_campaign_id', 'is', null).limit(50)
     for (const dc of (data || [])) {
       if (dc.email === email) continue

@@ -123,7 +123,7 @@ async function handleDirectStatus(
   // Get meeting with contact/client info
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, opportunity_id, contact_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
+    .select('id, opportunity_id, lead_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -214,7 +214,7 @@ async function handleNoShowSubmit(supabase: any, token: string, payload: any, me
   // Get meeting
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, opportunity_id, contact_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
+    .select('id, opportunity_id, lead_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -336,7 +336,7 @@ async function handleUnqualifiedSubmit(supabase: any, token: string, payload: an
   // Get meeting
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, opportunity_id, contact_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
+    .select('id, opportunity_id, lead_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -470,7 +470,7 @@ async function handleRescheduleSubmit(supabase: any, token: string, payload: any
   // Get meeting
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, opportunity_id, contact_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
+    .select('id, opportunity_id, lead_id, client_id, attendee_name, attendee_email, start_time, end_time, review_slack_ts')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -565,11 +565,11 @@ async function slackPostMessage(token: string, channel: string, text: string) {
 async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: string, userId: string): Promise<any[]> {
   // Get contact details for the updated message
   let contact: any = null
-  if (meeting.contact_id) {
+  if (meeting.lead_id) {
     const { data } = await supabase
-      .from('contacts')
+      .from('leads')
       .select('full_name, email, company_name, company_domain')
-      .eq('id', meeting.contact_id)
+      .eq('id', meeting.lead_id)
       .maybeSingle()
     contact = data
   }
@@ -607,11 +607,11 @@ async function buildUpdatedMessage(supabase: any, meeting: any, statusLabel: str
 }
 
 async function getContactName(supabase: any, meeting: any): Promise<string> {
-  if (meeting.contact_id) {
+  if (meeting.lead_id) {
     const { data } = await supabase
-      .from('contacts')
+      .from('leads')
       .select('full_name')
-      .eq('id', meeting.contact_id)
+      .eq('id', meeting.lead_id)
       .maybeSingle()
     if (data?.full_name) return data.full_name
   }
