@@ -1,0 +1,36 @@
+{
+  "client_code": "SECX",
+  "client_name": "SentioCX",
+  "campaign_name": "SECX-SAAS-NLBE-MAR",
+  "icp": {
+    "industry": ["Software", "Internet"],
+    "headcount": {"min": 50, "max": 500},
+    "country": ["NL", "BE"],
+    "keywords_include": ["SaaS", "platform", "customer experience"],
+    "keywords_exclude": ["agency", "consultancy", "nonprofit"],
+    "technologies": ["Salesforce", "Zendesk"]
+  },
+  "personas": [
+    {
+      "name": "CX Leader",
+      "keywords": [
+        "VP customer experience",
+        "Head of customer experience",
+        "Director customer experience",
+        "Chief customer officer",
+        "VP customer service",
+        "Head of customer service",
+        "Director customer service",
+        "Head of contact center",
+        "Director contact center"
+      ]
+    }
+  ],
+  "volume": 10,
+  "offer": "Elimineer willekeurige escalaties — route complexe cases op basis van impact en expertise",
+  "value_props": [
+    "60%+ first-contact resolution voor escalaties",
+    "76% reductie in supervisor interventies",
+    "Gemiddeld 12 min snellere oplostijd per case"
+  ]
+}

@@ -3,7 +3,7 @@
 
 -- 1. COMPANIES TABLE
 -- A-leads uit Google Maps scraping
-CREATE TABLE companies (
+CREATE TABLE IF NOT EXISTS companies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid REFERENCES clients(id),
 
@@ -40,16 +40,54 @@ CREATE TABLE companies (
   updated_at timestamptz DEFAULT now()
 );
 
+-- Add missing columns to existing companies table
+DO $$
+BEGIN
+    -- Add missing columns one by one
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'status') THEN
+        ALTER TABLE companies ADD COLUMN status text DEFAULT 'new';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'scraped_at') THEN
+        ALTER TABLE companies ADD COLUMN scraped_at timestamptz DEFAULT now();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'scraper_job_id') THEN
+        ALTER TABLE companies ADD COLUMN scraper_job_id text;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'zip_code') THEN
+        ALTER TABLE companies ADD COLUMN zip_code text;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'enriched_at') THEN
+        ALTER TABLE companies ADD COLUMN enriched_at timestamptz;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'category') THEN
+        ALTER TABLE companies ADD COLUMN category text;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'is_multi_location') THEN
+        ALTER TABLE companies ADD COLUMN is_multi_location boolean DEFAULT false;
+    END IF;
+END $$;
+
+-- Add missing columns to existing email_cache table
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_cache' AND column_name = 'expires_at') THEN
+        ALTER TABLE email_cache ADD COLUMN expires_at timestamptz DEFAULT (now() + interval '90 days');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_cache' AND column_name = 'linkedin_slug') THEN
+        ALTER TABLE email_cache ADD COLUMN linkedin_slug text UNIQUE;
+    END IF;
+END $$;
+
 -- Indexes voor companies
-CREATE INDEX idx_companies_client ON companies(client_id);
-CREATE INDEX idx_companies_status ON companies(status);
-CREATE INDEX idx_companies_domain ON companies(domain);
-CREATE INDEX idx_companies_zip ON companies(zip_code);
-CREATE INDEX idx_companies_scraper_job ON companies(scraper_job_id);
+CREATE INDEX IF NOT EXISTS idx_companies_client ON companies(client_id);
+CREATE INDEX IF NOT EXISTS idx_companies_status ON companies(status);
+CREATE INDEX IF NOT EXISTS idx_companies_domain ON companies(domain);
+CREATE INDEX IF NOT EXISTS idx_companies_zip ON companies(zip_code);
+CREATE INDEX IF NOT EXISTS idx_companies_scraper_job ON companies(scraper_job_id);
 
 -- 2. EMAIL CACHE TABLE
 -- 90-dagen cache voor email validaties
-CREATE TABLE email_cache (
+CREATE TABLE IF NOT EXISTS email_cache (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Identifiers
@@ -77,8 +115,8 @@ CREATE TABLE email_cache (
 );
 
 -- Indexes voor email_cache
-CREATE INDEX idx_email_cache_expires ON email_cache(expires_at);
-CREATE INDEX idx_email_cache_slug ON email_cache(linkedin_slug);
+CREATE INDEX IF NOT EXISTS idx_email_cache_expires ON email_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_email_cache_slug ON email_cache(linkedin_slug);
 
 -- 3. CONTACTS TABLE UITBREIDING
 -- Nieuwe kolommen toevoegen aan bestaande contacts table
@@ -95,6 +133,13 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_waterfall_status text DEFAUL
 
 -- 4. AUTO-CLEANUP VOOR EMAIL CACHE
 -- Dagelijkse cleanup van expired cache entries
+DO $$
+BEGIN
+    PERFORM cron.unschedule('cleanup-email-cache');
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
 SELECT cron.schedule(
   'cleanup-email-cache',
   '0 0 * * *', -- Elke dag om 00:00
@@ -110,6 +155,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_companies_updated_at ON companies;
 CREATE TRIGGER update_companies_updated_at
     BEFORE UPDATE ON companies
     FOR EACH ROW
@@ -119,15 +165,31 @@ CREATE TRIGGER update_companies_updated_at
 -- Alleen service_role heeft volledige toegang
 -- Dashboard gebruikt service_role key
 
-ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE email_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS email_cache ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass (voor edge functions)
-CREATE POLICY "Service role full access" ON companies
-    FOR ALL USING (true); -- Wordt aangepast wanneer RLS volledig geimplementeerd is
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'companies' AND policyname = 'Service role full access'
+    ) THEN
+        CREATE POLICY "Service role full access" ON companies
+            FOR ALL USING (true);
+    END IF;
+END $$;
 
-CREATE POLICY "Service role full access" ON email_cache
-    FOR ALL USING (true);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'email_cache' AND policyname = 'Service role full access'
+    ) THEN
+        CREATE POLICY "Service role full access" ON email_cache
+            FOR ALL USING (true);
+    END IF;
+END $$;
 
 -- Comment: In productie, gebruik: current_user = 'service_role'
 -- CREATE POLICY "Service role only" ON companies

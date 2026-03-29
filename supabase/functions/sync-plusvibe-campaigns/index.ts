@@ -153,6 +153,7 @@ serve(async (req) => {
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
 
+
     return new Response(
       JSON.stringify({ success: true, total: campaigns.length, created, updated, skipped, failed }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -170,6 +171,7 @@ serve(async (req) => {
       completed_at: completedAt.toISOString(),
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
+
 
     return new Response(
       JSON.stringify({ success: false, error: error.message }),

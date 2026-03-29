@@ -7,7 +7,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/meeting-review',
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdqaGJieW9kcmJ1YWJmemFmenJ5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzcyODQ4MiwiZXhwIjoyMDgzMzA0NDgyfQ.Ng8Wvy-tvCZpXqqsTvESvuwITznkQukJ_sL6Roe7ZVI"}'::jsonb,
+    headers := ('{"Content-Type": "application/json", "Authorization": "Bearer ' || current_setting('app.settings.service_role_key', true) || '"}')::jsonb,
     body := '{}'::jsonb
   );
   $$

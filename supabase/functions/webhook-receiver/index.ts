@@ -421,7 +421,7 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════
-      // BOUNCE — log but don't process
+      // BOUNCE — log and track
       // ═══════════════════════════════════════════
       case eventType === 'BOUNCED_EMAIL': {
         console.log(`[${requestId}] Bounce: ${leadEmail}`)
@@ -451,6 +451,7 @@ serve(async (req) => {
         console.log(`[${requestId}] Unhandled event: ${eventType}`)
     }
 
+
     return new Response(
       JSON.stringify({ success: true, event: eventType, lead: leadEmail, request_id: requestId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -471,6 +472,7 @@ serve(async (req) => {
         request_id: requestId,
       })
     } catch { /* ignore logging failure */ }
+
 
     return new Response(
       JSON.stringify({ success: false, error: errorMessage, request_id: requestId }),

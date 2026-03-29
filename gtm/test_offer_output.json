@@ -1,0 +1,26 @@
+{
+  "client_code": "SECX",
+  "client_name": "SentioCX",
+  "primary_offer": "AI-powered customer experience routing",
+  "primary_offer_description": "",
+  "offer_tier": "decent",
+  "tier_rationale": "Placeholder - requires Kimi analysis",
+  "estimated_conversion_rate": "1 per 500 contacts",
+  "front_end_offer": {
+    "offer_type": "sales_asset",
+    "name": "Strategic Asset Share",
+    "description": "Playbook or teardown based on real data",
+    "deliverable": "PDF + Loom walkthrough",
+    "time_to_value": "Immediately",
+    "cta": "Want me to send it over?",
+    "risk_reversal": "Just value, no pitch attached"
+  },
+  "primary_problem": "",
+  "problem_mechanism": "",
+  "value_props": [],
+  "script_guidance": {
+    "length_recommendation": "Under 70 words",
+    "needs_social_proof": true,
+    "personalization_approach": "Problem-solution specificity"
+  }
+}

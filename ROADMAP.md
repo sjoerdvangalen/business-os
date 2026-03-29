@@ -7,10 +7,10 @@
 ## Huidige Staat (wat er NU werkt)
 
 ### Infrastructuur (volledig operationeel)
-- PlusVibe syncs: campaigns, accounts, leads, warmup, sequences, domains (*/15 min + daily)
+- PlusVibe syncs: campaigns, email_inboxes, leads, warmup, sequences, domains (*/15 min + daily)
 - Reply pipeline: webhook-receiver → reply-classifier → lead-router → PlusVibe + Slack
 - Campaign monitoring: health checks */15 min, domain checks dagelijks
-- RLS op alle 14 tabellen, API keys in Supabase secrets
+- RLS op alle tabellen, API keys in Supabase secrets
 
 ### Meeting Lifecycle (volledig operationeel)
 - Webhook-meeting: Cal.com, Calendly, GHL via token-based routing
@@ -18,9 +18,19 @@
 - Slack interactions: Qualified (direct), Unqualified/No-Show (modals met bewijs), Rescheduled (modal met datum/tijd)
 - Opportunity pipeline: meetings → opportunities (1:1 status sync)
 
+### Database (33 tabellen, actief)
+Kern actief: `clients` (19), `campaigns` (49), `leads` (27.857), `companies` (17.524), `email_threads` (46.760), `email_inboxes` (4.391), `sync_log` (13.321), `agent_memory` (2.807)
+
+GTM framework aanwezig als scaffolding (0 rows, nog niet in gebruik):
+`gtm_strategies`, `icp_segments`, `campaign_plans`, `campaign_runs`, `campaign_cells`, `campaign_variants`, `solutions`, `entry_offers`, `proof_assets`, `buyer_personas`, `contacts`, `lead_pool`
+
+### Lead Generation Pipeline (gebouwd, nog niet actief gebruikt)
+Edge functions aanwezig: `process-gmaps-batch` → `find-contacts` (A-Leads) → `email-waterfall` (TryKitt) → `ai-enrich-contact` (Kimi)
+`lead_pool` tabel bestaat maar is leeg — pipeline nog niet productie gedraaid.
+
 ### Onboarding Framework (commands klaar, nog niet getest met echte klant)
 - `/onboard`, `/research`, `/strategy`, `/copy`, `/review` commands
-- outbound-playbook.md als knowledge base
+- `docs/outbound-playbook.md` als knowledge base
 - Onboarding pipeline in DB: not_started → ... → deployed
 
 ### Wat NIET werkt / mist
@@ -28,7 +38,7 @@
 - SLACK_TEST_CHANNEL nog actief (moet per client)
 - n8n nog als backup (niet uitgeschakeld)
 - Geen reporting (daily digest, client reports)
-- Geen lead list building automation
+- Lead pipeline gebouwd maar niet productie gedraaid
 - research/ directory is leeg (geen klant-research bestanden)
 - Geen multi-channel (alleen cold email, geen cold call/LinkedIn)
 
@@ -385,7 +395,44 @@ Het hele onboarding pad automatiseren:
 
 ---
 
-## Fase 7: Multi-Channel Expansie (Week 8-12)
+## Fase 7: Intelligence Layer (Week 8-10)
+
+**Doel**: Het systeem voedt zichzelf met context zodat agents beter worden naarmate er meer data is. Niet extern data inladen, maar intern leren van wat al werkt.
+
+**Kernprincipe**: Agents worden beter door patronen te detecteren in eigen data (reply rates, copy angles, ICP matches) — niet door externe bronnen te scrapen.
+
+### 7A. Pattern Detection op Eigen Data
+**Impact**: HOOG — leert wat werkt per klant, per industrie, per copy angle
+**Effort**: Medium
+
+- `reply-classifier` uitbreiden: na classificatie patronen opslaan in `agent_memory`
+- Welke email angles → positieve replies (per klant, per ICP)
+- Welke copy varianten → beste reply rate (uit campaign_cells + campaign_variants data)
+- Wekelijkse summary: "Top-performing angles" per klant → Slack
+
+### 7B. GTM Framework Activeren
+**Impact**: HOOG — maakt het GTM scaffolding productie-klaar
+**Effort**: Medium
+
+De 12 lege GTM tabellen (`gtm_strategies`, `icp_segments`, `solutions`, etc.) zijn gebouwd maar nooit gevuld. Activeren:
+1. `/onboard GTMS` doorlopen — vult gtm_strategies + icp_segments voor eigen bedrijf
+2. `campaign_cells` + `campaign_variants` koppelen aan bestaande PlusVibe campaigns
+3. A/B tracking: welke variant wint per ICP segment
+
+### 7C. Context naar Agents
+**Impact**: MEDIUM — agents weten wat al geprobeerd is
+**Effort**: Klein
+
+`agent_memory` tabel al aanwezig (2.807 rows). Structureren:
+- Per klant: ICP-match scores, copy angles die werken, objections die opkomen
+- Bij `/copy` command: automatisch relevante patronen meegeven als context
+- Bij `campaign-optimizer`: historische context meegeven (wat is al gepausd, waarom)
+
+> **Noot over aanpak**: Het externe knowledge ingestion plan (competitor scraping, community monitoring) uit het originele plan is niet de juiste aanpak — Claude agents kunnen nu direct browsen. De intelligence moet komen uit eigen operationele data, niet uit externe bronnen.
+
+---
+
+## Fase 8: Multi-Channel Expansie (Week 8-12)
 
 **Doel**: Naast cold email ook cold call en LinkedIn als channels toevoegen (Fivos model).
 
@@ -436,7 +483,8 @@ Fivos's model: 3-5 stakeholders per account benaderen.
 | 10 | Domain performance tracking | HOOG | Medium | 5-7 |
 | 11 | Campaign optimization agent | ZEER HOOG | Groot | 6-10 |
 | 12 | Client onboarding automation | HOOG | Medium | 6-10 |
-| 13 | Multi-channel (cold call + LinkedIn) | HOOG | Groot | 8-12 |
+| 13 | Intelligence layer (pattern detection, GTM activeren) | HOOG | Medium | 8-10 |
+| 14 | Multi-channel (cold call + LinkedIn) | HOOG | Groot | 10-14 |
 
 ---
 

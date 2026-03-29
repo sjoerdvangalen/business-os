@@ -1,0 +1,770 @@
+"""
+Hook Strategy Skill — GTM Strategy Framework SOP 4/5/6
+
+Handles the messaging development phase:
+- H1: Hook theme testing (3-5 variants)
+- F1: Framework testing with winning hook
+- CTA1: CTA testing with winning framework
+- MC1: Micro-copy optimization
+
+Test discipline: H1/F1/CTA1/MC1 standardized across all cells.
+
+Rules:
+  Rule 4:  One primary persona per cell
+  Rule 5:  H1/F1/CTA1/MC1 standardized
+  Rule 6:  Case study = proof asset, NOT a framework type
+  Rule 7:  Stable cell identity — cell_code never changes
+  Rule 8:  H1/F1 CTA lock — test CTAs only in CTA1
+  Rule 9:  Proof asset send_mode enforcement
+  Rule 10: Friction score gate before high-friction CTAs
+"""
+
+import json
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+
+class FrameworkType(Enum):
+    PROBLEM_FIRST = "problem_first"
+    BEFORE_AFTER = "before_after"
+    ONE_LINER = "one_liner"
+    CONSEQUENCE = "consequence"
+    VALUE_FIRST = "value_first"
+    CONTRARIAN = "contrarian"
+    PROOF_LED = "proof_led"
+
+
+class CTAType(Enum):
+    INFO_SEND = "info_send"
+    CASE_STUDY_SEND = "case_study_send"
+    AUDIT = "audit"
+    BENCHMARK = "benchmark"
+    PILOT = "pilot"
+
+
+class TestPhase(Enum):
+    H1 = "H1"      # Hook test
+    F1 = "F1"      # Framework test
+    CTA1 = "CTA1"  # CTA test
+    MC1 = "MC1"    # Micro-copy test
+    SCALE = "SCALE"
+
+
+class ProofSendMode(Enum):
+    SENDABLE = "sendable"          # Can share directly in outbound
+    MENTION_ONLY = "mention_only"  # Reference only, do not share
+    INTERNAL_ONLY = "internal_only"  # Never in outbound
+
+
+class FrictionLevel(Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+# Friction score thresholds per CTA type
+_CTA_FRICTION = {
+    CTAType.INFO_SEND: FrictionLevel.LOW,
+    CTAType.CASE_STUDY_SEND: FrictionLevel.LOW,
+    CTAType.BENCHMARK: FrictionLevel.MEDIUM,
+    CTAType.AUDIT: FrictionLevel.HIGH,
+    CTAType.PILOT: FrictionLevel.HIGH,
+}
+
+# H1/F1 locked CTA types (Rule 8)
+_H1_F1_ALLOWED_CTA_TYPES = {CTAType.INFO_SEND, CTAType.CASE_STUDY_SEND}
+
+# Friction score at or above which high-friction CTAs are blocked (Rule 10)
+FRICTION_BLOCK_THRESHOLD = 4
+
+
+@dataclass
+class HookVariant:
+    variant_label: str       # "Hook A", "Hook B", "Hook C"
+    hook_text: str           # Actual hook copy (max 25 words)
+    theme_reference: str     # Which hook theme this comes from
+    variant_rationale: str   # Why this angle
+
+
+@dataclass
+class FrameworkVariant:
+    variant_label: str           # "Framework: problem-first"
+    framework_type: FrameworkType
+    subject_line: str            # 2-5 words, lowercase, no punctuation
+    opener: str                  # Observation about prospect (not about us)
+    body: str                    # < 75 words
+    cta: str                     # One concrete question
+    proof_insert: Optional[str]  # Where proof goes in the body
+
+
+@dataclass
+class CTAVariant:
+    variant_label: str              # "CTA: audit"
+    cta_type: CTAType
+    cta_text: str
+    deliverable_description: str
+    friction_level: str             # low/medium/high
+
+
+@dataclass
+class HookStrategyResult:
+    cell_code: str
+    test_phase: TestPhase
+
+    # H1: Hook variants (3-5 variants)
+    hook_variants: list[HookVariant]
+    winning_hook: Optional[HookVariant]
+
+    # F1: Framework variants (tested with winning hook)
+    framework_variants: list[FrameworkVariant]
+    winning_framework: Optional[FrameworkVariant]
+
+    # CTA1: CTA variants (tested with winning framework)
+    cta_variants: list[CTAVariant]
+    winning_cta: Optional[CTAVariant]
+
+    # MC1: Micro-copy optimization
+    micro_variants: list[dict]
+
+    # Progress tracking
+    current_variant_count: int
+    target_sample_size: int
+    h1_completed: bool
+    f1_completed: bool
+    cta1_completed: bool
+    mc1_completed: bool
+
+
+def _friction_level_for(cta_type: CTAType) -> FrictionLevel:
+    return _CTA_FRICTION.get(cta_type, FrictionLevel.MEDIUM)
+
+
+def _is_high_friction(cta_type: CTAType) -> bool:
+    return _friction_level_for(cta_type) == FrictionLevel.HIGH
+
+
+def generate_hook_variants(cell_brief: dict, count: int = 3) -> list[HookVariant]:
+    """Generate hook variant stubs from hook themes in cell brief.
+
+    Themes in cell_brief["hook_themes"] are categories (no copy). This function
+    maps each theme into a labeled HookVariant placeholder to be filled by Kimi.
+    Count is clamped to 3-5 per test discipline.
+    """
+    count = max(3, min(5, count))
+    themes = cell_brief.get("hook_themes", [])[:count]
+    labels = ["Hook A", "Hook B", "Hook C", "Hook D", "Hook E"]
+    variants = []
+    for i, theme in enumerate(themes):
+        theme_name = theme.get("theme_name", f"Theme {i + 1}")
+        theme_category = theme.get("theme_category", "pain_consequence")
+        variants.append(HookVariant(
+            variant_label=labels[i],
+            hook_text=f"[To be generated by Kimi — max 25 words — {theme_category} angle]",
+            theme_reference=theme_name,
+            variant_rationale=theme.get("description", "[To be determined]"),
+        ))
+    # Pad to count if fewer themes than requested
+    while len(variants) < count:
+        i = len(variants)
+        variants.append(HookVariant(
+            variant_label=labels[i],
+            hook_text="[To be generated by Kimi — max 25 words]",
+            theme_reference="Additional theme",
+            variant_rationale="[To be determined]",
+        ))
+    return variants
+
+
+def get_h1_prompt(cell_code: str, cell_brief: dict) -> str:
+    """Generate Kimi K2.5 prompt for H1 hook variant generation.
+
+    H1 rule: Test only hooks. CTA is locked to info-send or case-study-send.
+    Subject line, body, CTA remain constant across all variants.
+    """
+    primary_pain = cell_brief.get("primary_pain", "")
+    hook_themes = cell_brief.get("hook_themes", [])
+    solution_name = cell_brief.get("solution_name", "")
+    entry_offer = cell_brief.get("entry_offer_name", "")
+    proof_asset = cell_brief.get("proof_asset_name")
+    locked_cta = "case_study_send" if proof_asset else "info_send"
+
+    themes_json = json.dumps(hook_themes, indent=2)
+    return f"""You are a senior B2B cold email strategist. Generate H1 hook variants for this campaign cell.
+
+CELL CODE: {cell_code}
+
+CELL BRIEF:
+```json
+{json.dumps(cell_brief, indent=2)}
+```
+
+YOUR TASK — H1 HOOK TEST:
+Generate 3-5 hook variants. Each variant tests a DIFFERENT ANGLE on the primary pain.
+
+RULES (non-negotiable):
+- Hook text: max 25 words. Observation about the prospect, NOT about us.
+- No generic openers: "I noticed you're in [industry]", "Hope this finds you well"
+- No buzzwords: disruptive, game-changer, synergy, leverage, innovative
+- Each variant uses a different hook theme from the list below
+- Subject line: 2-5 words, lowercase, no punctuation — SAME across all variants
+- Body: < 75 words — SAME across all variants
+- CTA: locked to "{locked_cta}" — SAME across all variants (Rule 8: H1 CTA lock)
+- Opener = the hook variant text (max 25 words, prospect-observation)
+
+PRIMARY PAIN: {primary_pain}
+SOLUTION: {solution_name}
+ENTRY OFFER: {entry_offer}
+PROOF ASSET: {proof_asset or "None"}
+
+HOOK THEMES TO WORK FROM:
+```json
+{themes_json}
+```
+
+OUTPUT FORMAT — Return valid JSON:
+```json
+{{
+  "subject_line": "2-5 words lowercase no punctuation",
+  "locked_cta_type": "{locked_cta}",
+  "locked_cta_text": "One concrete question (no 'schedule a meeting')",
+  "hook_variants": [
+    {{
+      "variant_label": "Hook A",
+      "hook_text": "Max 25 words. Observation about the prospect, not about us.",
+      "theme_reference": "Name of the hook theme this comes from",
+      "variant_rationale": "Why this angle works for this persona"
+    }}
+  ]
+}}
+```
+
+IMPORTANT:
+- Return ONLY valid JSON. No markdown wrapping.
+- All hook_text must be < 25 words
+- Opener must never start with "I" or reference our company
+- CTA must be a question, not a command
+"""
+
+
+def get_f1_prompt(winning_hook: HookVariant, cell_brief: dict) -> str:
+    """Generate Kimi K2.5 prompt for F1 framework variant generation.
+
+    F1 rule: Test only frameworks (email structure). CTA = same as H1 winner (Rule 8).
+    Winning hook is fixed across all F1 variants.
+    """
+    solution_name = cell_brief.get("solution_name", "")
+    primary_pain = cell_brief.get("primary_pain", "")
+    proof_asset = cell_brief.get("proof_asset_name")
+    entry_offer = cell_brief.get("entry_offer_name", "")
+    # Rule 8: F1 inherits H1 winner CTA type
+    locked_cta = "case_study_send" if proof_asset else "info_send"
+
+    framework_descriptions = {
+        "problem_first": "Lead with the problem, then introduce the solution",
+        "before_after": "Paint the 'before' state (current pain), then the 'after' state",
+        "one_liner": "Ultra-short: hook + solution + CTA in under 50 words",
+        "consequence": "Focus on what happens if they don't act (cost of inaction)",
+        "value_first": "Lead with the outcome/result, then explain how",
+        "contrarian": "Challenge an assumption they hold about their current approach",
+        "proof_led": "Lead with a specific proof point or result, then connect to their situation",
+    }
+
+    return f"""You are a senior B2B cold email strategist. Generate F1 framework variants for this campaign cell.
+
+WINNING HOOK (fixed for all F1 variants):
+- Hook text: "{winning_hook.hook_text}"
+- Theme: {winning_hook.theme_reference}
+
+CELL BRIEF:
+```json
+{json.dumps(cell_brief, indent=2)}
+```
+
+YOUR TASK — F1 FRAMEWORK TEST:
+Generate one email variant per framework type. Each email uses the SAME winning hook as opener.
+Test which email STRUCTURE converts best, not the hook.
+
+RULES (non-negotiable):
+- Opener = winning hook text (exact, unchanged) for ALL variants
+- Subject line: 2-5 words, lowercase, no punctuation — SAME across all variants
+- CTA: locked to "{locked_cta}" — SAME across all variants (Rule 8: F1 CTA lock)
+- Body: < 75 words per variant
+- No buzzwords: disruptive, game-changer, synergy, leverage
+- proof_led framework: only use if proof asset exists ({proof_asset or "NONE — skip proof_led"})
+- case_study as a framework type is NOT allowed (Rule 6: case study = proof asset only)
+
+SOLUTION: {solution_name}
+PRIMARY PAIN: {primary_pain}
+ENTRY OFFER: {entry_offer}
+PROOF ASSET: {proof_asset or "None"}
+
+FRAMEWORKS TO TEST:
+{json.dumps(framework_descriptions, indent=2)}
+
+OUTPUT FORMAT — Return valid JSON:
+```json
+{{
+  "subject_line": "2-5 words lowercase no punctuation",
+  "fixed_opener": "{winning_hook.hook_text}",
+  "locked_cta_type": "{locked_cta}",
+  "framework_variants": [
+    {{
+      "variant_label": "Framework: problem-first",
+      "framework_type": "problem_first",
+      "subject_line": "same as above",
+      "opener": "{winning_hook.hook_text}",
+      "body": "< 75 words. Framework-specific body structure.",
+      "cta": "One concrete question",
+      "proof_insert": "Where proof goes in this structure, or null"
+    }}
+  ]
+}}
+```
+
+IMPORTANT:
+- Return ONLY valid JSON. No markdown wrapping.
+- Skip proof_led if no proof asset
+- All body text must be < 75 words
+- opener must be identical to winning hook text in every variant
+"""
+
+
+def get_cta1_prompt(
+    winning_framework: FrameworkVariant,
+    cell_brief: dict,
+    entry_offer: dict,
+) -> str:
+    """Generate Kimi K2.5 prompt for CTA1 variant generation.
+
+    CTA1 rule: Test alternative CTAs against winning hook + winning framework.
+    Rule 10: If friction_score >= 4 in entry_offer, block high-friction CTAs without approval.
+    """
+    friction_score = entry_offer.get("friction_score", 0)
+    high_friction_blocked = friction_score >= FRICTION_BLOCK_THRESHOLD
+
+    available_cta_types = ["info_send", "case_study_send", "benchmark"]
+    if not high_friction_blocked:
+        available_cta_types += ["audit", "pilot"]
+
+    friction_note = ""
+    if high_friction_blocked:
+        friction_note = (
+            f"\nFRICTION GATE ACTIVE (Rule 10): entry offer friction_score = {friction_score} "
+            f"(threshold: {FRICTION_BLOCK_THRESHOLD}). "
+            f"High-friction CTAs (audit, pilot) are BLOCKED. Only test low/medium-friction alternatives."
+        )
+
+    return f"""You are a senior B2B cold email strategist. Generate CTA1 variants for this campaign cell.
+
+WINNING HOOK: "{winning_framework.opener}"
+WINNING FRAMEWORK: {winning_framework.framework_type.value}
+WINNING BODY:
+---
+{winning_framework.body}
+---
+
+CELL BRIEF:
+```json
+{json.dumps(cell_brief, indent=2)}
+```
+
+ENTRY OFFER:
+```json
+{json.dumps(entry_offer, indent=2)}
+```
+{friction_note}
+
+YOUR TASK — CTA1 TEST:
+Generate one variant per available CTA type. Hook and body remain fixed. Only the CTA changes.
+
+RULES (non-negotiable):
+- Opener: unchanged from winning hook
+- Body: unchanged from winning framework body
+- Subject line: unchanged
+- Only change: the CTA at the end of the email
+- CTA = one concrete question (never "schedule a meeting", "book a call", "let me know if interested")
+- Each CTA must reference what they get (the deliverable)
+
+AVAILABLE CTA TYPES: {available_cta_types}
+
+CTA TYPE DEFINITIONS:
+- info_send: "Want me to send over [specific resource]?" — friction: low
+- case_study_send: "Want me to send a case study of [relevant result]?" — friction: low
+- benchmark: "Want to see how you compare to [relevant benchmark]?" — friction: medium
+- audit: "Want a free [specific audit] of your [area]?" — friction: high
+- pilot: "Want to run a [specific pilot] to validate [outcome]?" — friction: high
+
+OUTPUT FORMAT — Return valid JSON:
+```json
+{{
+  "cta_variants": [
+    {{
+      "variant_label": "CTA: info_send",
+      "cta_type": "info_send",
+      "cta_text": "Want me to send over [specific deliverable]?",
+      "deliverable_description": "What they actually receive",
+      "friction_level": "low"
+    }}
+  ]
+}}
+```
+
+IMPORTANT:
+- Return ONLY valid JSON. No markdown wrapping.
+- CTA text must be a question, max 15 words
+- Reference specific deliverables, not vague benefits
+- Do not include blocked CTA types
+"""
+
+
+def get_mc1_prompt(
+    winning_hook: HookVariant,
+    winning_framework: FrameworkVariant,
+    winning_cta: CTAVariant,
+    cell_brief: dict,
+) -> str:
+    """Generate Kimi K2.5 prompt for MC1 micro-copy optimization.
+
+    MC1 tests small variations in subject line wording, opener phrasing,
+    and CTA phrasing while keeping overall email structure fixed.
+    """
+    return f"""You are a senior B2B cold email strategist. Generate MC1 micro-copy variants.
+
+PROVEN WINNING COMBINATION:
+- Hook: "{winning_hook.hook_text}"
+- Framework: {winning_framework.framework_type.value}
+- Subject: "{winning_framework.subject_line}"
+- Body: "{winning_framework.body}"
+- CTA: "{winning_cta.cta_text}"
+
+CELL BRIEF:
+```json
+{json.dumps(cell_brief, indent=2)}
+```
+
+YOUR TASK — MC1 MICRO-COPY TEST:
+Generate 3 micro-copy variants. Each variant tweaks ONE element only:
+- Variant A: Alternative subject line (2-5 words, lowercase, no punctuation)
+- Variant B: Slightly rephrased opener (same angle, different words, still < 25 words)
+- Variant C: Alternative CTA phrasing (same CTA type, different wording)
+
+RULES:
+- Change only the specified element per variant
+- Never change the framework structure
+- Subject lines: 2-5 words, lowercase, no punctuation
+- Opener: observation about prospect, not about us, < 25 words
+- CTA: question form, < 15 words, reference specific deliverable
+
+OUTPUT FORMAT — Return valid JSON:
+```json
+{{
+  "micro_variants": [
+    {{
+      "variant_label": "MC1-A: subject tweak",
+      "element_tested": "subject_line",
+      "original": "{winning_framework.subject_line}",
+      "variant": "alternative subject line",
+      "rationale": "Why this wording might perform better"
+    }},
+    {{
+      "variant_label": "MC1-B: opener tweak",
+      "element_tested": "opener",
+      "original": "{winning_hook.hook_text}",
+      "variant": "alternative opener text",
+      "rationale": "Why this phrasing might improve open rate"
+    }},
+    {{
+      "variant_label": "MC1-C: cta tweak",
+      "element_tested": "cta",
+      "original": "{winning_cta.cta_text}",
+      "variant": "alternative CTA question",
+      "rationale": "Why this phrasing might improve reply rate"
+    }}
+  ]
+}}
+```
+
+IMPORTANT:
+- Return ONLY valid JSON. No markdown wrapping.
+- Only one element changes per variant
+- No buzzwords, no "schedule a meeting" CTAs
+"""
+
+
+def _validate_cta_for_phase(cta_type: CTAType, phase: TestPhase) -> bool:
+    """Validate CTA type is allowed for test phase. Rule 8: H1/F1 CTA lock."""
+    if phase in (TestPhase.H1, TestPhase.F1):
+        return cta_type in _H1_F1_ALLOWED_CTA_TYPES
+    return True
+
+
+def _validate_cta_friction(cta_type: CTAType, friction_score: int) -> bool:
+    """Validate CTA against entry offer friction score. Rule 10."""
+    if friction_score >= FRICTION_BLOCK_THRESHOLD and _is_high_friction(cta_type):
+        return False
+    return True
+
+
+def run_hook_strategy(
+    cell_code: str,
+    cell_brief: dict,
+    test_phase: TestPhase,
+    winning_hook: Optional[HookVariant] = None,
+    winning_framework: Optional[FrameworkVariant] = None,
+    winning_cta: Optional[CTAVariant] = None,
+    entry_offer: Optional[dict] = None,
+    target_sample_size: int = 1000,
+) -> HookStrategyResult:
+    """Main entry point for hook strategy. In production: calls Kimi K2.5 via CCR.
+
+    Returns a HookStrategyResult with:
+    - H1: Generated hook variants (always)
+    - F1: Framework variant stubs if winning_hook provided
+    - CTA1: CTA variant stubs if winning_framework provided and friction allows
+    - MC1: Micro-copy variant stubs if all prior phases have winners
+
+    Phase tracking is inferred from the provided winning states.
+    """
+    # Rule 4: Single persona enforced by cell_brief — no enforcement needed here
+    # but we log it for traceability
+    persona = cell_brief.get("primary_persona_name", "[unknown persona]")
+    _ = persona  # referenced for clarity, used in prompts via cell_brief
+
+    # Determine completion state from provided winners
+    h1_completed = winning_hook is not None
+    f1_completed = winning_framework is not None
+    cta1_completed = winning_cta is not None
+    mc1_completed = False  # MC1 is always the next step after CTA1
+
+    # H1: Always generate hook variant stubs
+    hook_variants = generate_hook_variants(cell_brief, count=3)
+
+    # F1: Generate framework stubs if H1 is completed
+    framework_variants: list[FrameworkVariant] = []
+    if h1_completed and winning_hook is not None:
+        # These are placeholder stubs — real content comes from Kimi via get_f1_prompt
+        for fw_type in [
+            FrameworkType.PROBLEM_FIRST,
+            FrameworkType.BEFORE_AFTER,
+            FrameworkType.CONSEQUENCE,
+            FrameworkType.VALUE_FIRST,
+        ]:
+            framework_variants.append(FrameworkVariant(
+                variant_label=f"Framework: {fw_type.value}",
+                framework_type=fw_type,
+                subject_line="[To be generated by Kimi]",
+                opener=winning_hook.hook_text,
+                body="[To be generated by Kimi — < 75 words]",
+                cta="[To be generated by Kimi — locked CTA from H1]",
+                proof_insert=None,
+            ))
+
+    # CTA1: Generate CTA stubs if F1 is completed, with friction gate
+    cta_variants: list[CTAVariant] = []
+    if f1_completed:
+        offer_data = entry_offer or {}
+        friction_score = offer_data.get("friction_score", 0)
+        candidate_types = [
+            CTAType.INFO_SEND,
+            CTAType.CASE_STUDY_SEND,
+            CTAType.BENCHMARK,
+            CTAType.AUDIT,
+            CTAType.PILOT,
+        ]
+        for cta_type in candidate_types:
+            if not _validate_cta_friction(cta_type, friction_score):
+                continue  # Rule 10: block high-friction CTAs
+            fl = _friction_level_for(cta_type)
+            cta_variants.append(CTAVariant(
+                variant_label=f"CTA: {cta_type.value}",
+                cta_type=cta_type,
+                cta_text="[To be generated by Kimi]",
+                deliverable_description="[To be determined]",
+                friction_level=fl.value,
+            ))
+
+    # MC1: Micro-copy stubs if CTA1 is completed
+    micro_variants: list[dict] = []
+    if cta1_completed and winning_cta is not None:
+        mc1_completed = False  # Still needs to be run
+        micro_variants = [
+            {"variant_label": "MC1-A: subject tweak", "element_tested": "subject_line",
+             "variant": "[To be generated by Kimi]"},
+            {"variant_label": "MC1-B: opener tweak", "element_tested": "opener",
+             "variant": "[To be generated by Kimi]"},
+            {"variant_label": "MC1-C: cta tweak", "element_tested": "cta",
+             "variant": "[To be generated by Kimi]"},
+        ]
+
+    current_variant_count = len(hook_variants) if not h1_completed else (
+        len(framework_variants) if not f1_completed else (
+            len(cta_variants) if not cta1_completed else len(micro_variants)
+        )
+    )
+
+    return HookStrategyResult(
+        cell_code=cell_code,
+        test_phase=test_phase,
+        hook_variants=hook_variants,
+        winning_hook=winning_hook,
+        framework_variants=framework_variants,
+        winning_framework=winning_framework,
+        cta_variants=cta_variants,
+        winning_cta=winning_cta,
+        micro_variants=micro_variants,
+        current_variant_count=current_variant_count,
+        target_sample_size=target_sample_size,
+        h1_completed=h1_completed,
+        f1_completed=f1_completed,
+        cta1_completed=cta1_completed,
+        mc1_completed=mc1_completed,
+    )
+
+
+def result_to_dict(result: HookStrategyResult) -> dict:
+    """Serialize HookStrategyResult to JSON-safe dict."""
+    def hook_to_dict(h: HookVariant) -> dict:
+        return {
+            "variant_label": h.variant_label,
+            "hook_text": h.hook_text,
+            "theme_reference": h.theme_reference,
+            "variant_rationale": h.variant_rationale,
+        }
+
+    def framework_to_dict(f: FrameworkVariant) -> dict:
+        return {
+            "variant_label": f.variant_label,
+            "framework_type": f.framework_type.value,
+            "subject_line": f.subject_line,
+            "opener": f.opener,
+            "body": f.body,
+            "cta": f.cta,
+            "proof_insert": f.proof_insert,
+        }
+
+    def cta_to_dict(c: CTAVariant) -> dict:
+        return {
+            "variant_label": c.variant_label,
+            "cta_type": c.cta_type.value,
+            "cta_text": c.cta_text,
+            "deliverable_description": c.deliverable_description,
+            "friction_level": c.friction_level,
+        }
+
+    return {
+        "cell_code": result.cell_code,
+        "test_phase": result.test_phase.value,
+        "progress": {
+            "h1_completed": result.h1_completed,
+            "f1_completed": result.f1_completed,
+            "cta1_completed": result.cta1_completed,
+            "mc1_completed": result.mc1_completed,
+            "current_variant_count": result.current_variant_count,
+            "target_sample_size": result.target_sample_size,
+        },
+        "h1": {
+            "hook_variants": [hook_to_dict(h) for h in result.hook_variants],
+            "winning_hook": hook_to_dict(result.winning_hook) if result.winning_hook else None,
+            "prompt": None,  # Populated by caller using get_h1_prompt()
+        },
+        "f1": {
+            "framework_variants": [framework_to_dict(f) for f in result.framework_variants],
+            "winning_framework": framework_to_dict(result.winning_framework) if result.winning_framework else None,
+        },
+        "cta1": {
+            "cta_variants": [cta_to_dict(c) for c in result.cta_variants],
+            "winning_cta": cta_to_dict(result.winning_cta) if result.winning_cta else None,
+        },
+        "mc1": {
+            "micro_variants": result.micro_variants,
+        },
+    }
+
+
+if __name__ == "__main__":
+    test_cell = {
+        "cell_code": "SECX | NL | Routing SaaS-NL VPOps EMEA",
+        "solution_name": "AI-powered customer experience routing",
+        "primary_persona_name": "VP Operations",
+        "entry_offer_name": "Escalation Audit",
+        "primary_pain": "Supervisors waste 2+ hours daily on random escalations",
+        "proof_asset_name": None,
+        "hook_themes": [
+            {
+                "theme_name": "Random escalation cost",
+                "theme_category": "pain_consequence",
+                "description": "Every unrouted escalation drains supervisor capacity and delays resolution",
+            },
+            {
+                "theme_name": "Supervisor interruption",
+                "theme_category": "cost_revelation",
+                "description": "Hidden cost: each interruption takes 23 minutes to recover focus",
+            },
+            {
+                "theme_name": "CSAT erosion",
+                "theme_category": "missed_outcome",
+                "description": "Unresolved escalations silently erode CSAT scores month over month",
+            },
+        ],
+    }
+
+    print("=" * 60)
+    print("H1 PROMPT")
+    print("=" * 60)
+    print(get_h1_prompt(test_cell["cell_code"], test_cell)[:800] + "...")
+
+    print("\n" + "=" * 60)
+    print("HOOK STRATEGY RESULT (H1 phase)")
+    print("=" * 60)
+    result = run_hook_strategy(
+        cell_code=test_cell["cell_code"],
+        cell_brief=test_cell,
+        test_phase=TestPhase.H1,
+    )
+    print(json.dumps(result_to_dict(result), indent=2))
+
+    print("\n" + "=" * 60)
+    print("HOOK STRATEGY RESULT (F1 phase — with winning hook)")
+    print("=" * 60)
+    winning_hook = HookVariant(
+        variant_label="Hook A",
+        hook_text="Your supervisors spend 2+ hours daily firefighting escalations that never should have reached them.",
+        theme_reference="Random escalation cost",
+        variant_rationale="Direct cost-of-status-quo framing resonates with ops leaders tracking capacity",
+    )
+    result_f1 = run_hook_strategy(
+        cell_code=test_cell["cell_code"],
+        cell_brief=test_cell,
+        test_phase=TestPhase.F1,
+        winning_hook=winning_hook,
+    )
+    print(json.dumps(result_to_dict(result_f1), indent=2))
+
+    print("\n" + "=" * 60)
+    print("CTA1 FRICTION GATE — friction_score=5 (should block audit/pilot)")
+    print("=" * 60)
+    winning_framework = FrameworkVariant(
+        variant_label="Framework: consequence",
+        framework_type=FrameworkType.CONSEQUENCE,
+        subject_line="escalations costing you",
+        opener=winning_hook.hook_text,
+        body="Without routing intelligence, every random escalation is 23 minutes of lost supervisor focus. "
+             "Teams using AI routing cut escalation volume 40% in the first 60 days.",
+        cta="Want me to send over how we did it for a similar ops team?",
+        proof_insert=None,
+    )
+    high_friction_entry_offer = {"name": "Escalation Audit", "friction_score": 5}
+    result_cta1 = run_hook_strategy(
+        cell_code=test_cell["cell_code"],
+        cell_brief=test_cell,
+        test_phase=TestPhase.CTA1,
+        winning_hook=winning_hook,
+        winning_framework=winning_framework,
+        entry_offer=high_friction_entry_offer,
+    )
+    blocked = [c for c in result_cta1.cta_variants if c.cta_type in (CTAType.AUDIT, CTAType.PILOT)]
+    allowed = [c for c in result_cta1.cta_variants]
+    print(f"Allowed CTAs ({len(allowed)}): {[c.cta_type.value for c in allowed]}")
+    print(f"Blocked (audit/pilot present): {bool(blocked)}")
+    print(json.dumps(result_to_dict(result_cta1), indent=2))

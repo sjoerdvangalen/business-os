@@ -16,6 +16,14 @@ supabase/.temp/
 # Deno
 .deno/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# GTM runtime data (client data, not code)
+gtm/storage/
+
 # Editor
 .vscode/
 .idea/

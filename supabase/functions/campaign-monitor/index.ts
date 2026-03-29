@@ -133,6 +133,7 @@ serve(async (req) => {
         monitoring_notes: monitoringNotes,
       }).eq('id', camp.id)
 
+
       if (hasCritical) criticals++
       if (hasWarning && !hasCritical) warnings++
 
@@ -201,6 +202,7 @@ serve(async (req) => {
       completed_at: completedAt.toISOString(),
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
+
 
     return new Response(
       JSON.stringify({ success: true, checked, warnings, criticals, alerts: alerts.length }),

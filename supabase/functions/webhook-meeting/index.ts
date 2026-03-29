@@ -96,12 +96,13 @@ serve(async (req: Request) => {
     }
 
     // STEP 6: Handle event
+    let meetingId: string | null = null
     if (normalized.event === 'created') {
-      await handleCreated(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleCreated(supabase, integration, client, clientCode, normalized)
     } else if (normalized.event === 'cancelled') {
-      await handleCancelled(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleCancelled(supabase, integration, client, clientCode, normalized)
     } else if (normalized.event === 'rescheduled') {
-      await handleRescheduled(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleRescheduled(supabase, integration, client, clientCode, normalized)
     }
 
     // Log
@@ -116,14 +117,16 @@ serve(async (req: Request) => {
       },
     }).then(() => {})
 
+
     return new Response(
-      JSON.stringify({ success: true, event: normalized.event, integration: integration.name }),
+      JSON.stringify({ success: true, event: normalized.event, integration: integration.name, meeting_id: meetingId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
     const msg = (error as Error).message || 'Unknown error'
     console.error('FATAL:', msg)
+
 
     if (supabase) {
       supabase.from('agent_memory').insert({
@@ -144,7 +147,13 @@ serve(async (req: Request) => {
 // EVENT HANDLERS
 // ============================================================
 
-async function handleCreated(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
+async function handleCreated(
+  supabase: any,
+  integration: any,
+  client: any,
+  clientCode: string,
+  n: NormalizedMeeting
+): Promise<string | null> {
   // Match contact
   let contact: any = null
   if (n.attendeeEmail) {
@@ -254,6 +263,7 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     }).eq('id', opp.id)
   }
 
+
   // Slack
   const oppLabel = opp ? (oppIsNew ? '✅ _New opportunity_' : '🔄 _Existing opportunity updated_') : '⚠️ _Opportunity failed_'
   await sendSlackAlert(supabase, client,
@@ -264,14 +274,22 @@ async function handleCreated(supabase: any, integration: any, client: any, clien
     `${oppLabel}\n` +
     (contact ? `_Matched: ${contact.full_name || contact.email}_` : `_⚠️ No contact match_`)
   )
+
+  return meeting?.id || null
 }
 
-async function handleCancelled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
-  if (!n.bookingId) return
+async function handleCancelled(
+  supabase: any,
+  integration: any,
+  client: any,
+  clientCode: string,
+  n: NormalizedMeeting
+): Promise<string | null> {
+  if (!n.bookingId) return null
 
   // Get the meeting to find linked opportunity
   const { data: meeting } = await supabase.from('meetings')
-    .select('id, opportunity_id')
+    .select('id, opportunity_id, client_id')
     .eq('provider_booking_id', n.bookingId)
     .maybeSingle()
 
@@ -289,19 +307,28 @@ async function handleCancelled(supabase: any, integration: any, client: any, cli
     }).eq('id', meeting.opportunity_id)
   }
 
+
   await sendSlackAlert(supabase, client,
     `❌ *Meeting Cancelled* [${clientCode}]\n*Via:* ${integration.name}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Was:* ${fmtDt(n.startTime)}\n` +
     `*Reason:* ${n.cancellationReason || 'No reason given'}`
   )
+
+  return meeting?.id || null
 }
 
-async function handleRescheduled(supabase: any, integration: any, client: any, clientCode: string, n: NormalizedMeeting) {
-  if (!n.bookingId) return
+async function handleRescheduled(
+  supabase: any,
+  integration: any,
+  client: any,
+  clientCode: string,
+  n: NormalizedMeeting
+): Promise<string | null> {
+  if (!n.bookingId) return null
 
   // Get the meeting to find linked opportunity
   const { data: meeting } = await supabase.from('meetings')
-    .select('id, opportunity_id')
+    .select('id, opportunity_id, client_id')
     .eq('provider_booking_id', n.bookingId)
     .maybeSingle()
 
@@ -325,11 +352,14 @@ async function handleRescheduled(supabase: any, integration: any, client: any, c
     }).eq('id', meeting.opportunity_id)
   }
 
+
   await sendSlackAlert(supabase, client,
     `🔄 *Meeting Rescheduled* [${clientCode}]\n*Via:* ${integration.name}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*New time:* ${fmtDt(n.startTime)}\n` +
     `_Review timer reset to ${fmtDt(reviewAt || '')}_`
   )
+
+  return meeting?.id || null
 }
 
 // ============================================================
@@ -464,11 +494,11 @@ async function sendSlackAlert(supabase: any, client: any, text: string) {
     return
   }
 
-  // Send to client channel (if configured) + #sales-alerts
-  const channels = ['#sales-alerts']
-  if (client?.slack_channel_id) {
-    channels.unshift(client.slack_channel_id)
-  }
+  // TEST_CHANNEL overrides everything — when set, only send there
+  const testChannel = Deno.env.get('SLACK_TEST_CHANNEL')
+  const channels = testChannel
+    ? [testChannel]
+    : [client?.slack_channel_id, '#sales-alerts'].filter(Boolean) as string[]
 
   for (const channel of channels) {
     try {
