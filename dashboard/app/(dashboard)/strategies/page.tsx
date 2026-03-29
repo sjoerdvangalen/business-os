@@ -31,7 +31,7 @@ export default async function StrategiesPage() {
     byClient.get(key)!.push(s)
   }
 
-  const sortedClients = Array.from(byClient.entries()).sort((a, b) => a[0].localeCompare(b[0))
+  const sortedClients = Array.from(byClient.entries()).sort((a, b) => a[0].localeCompare(b[0]))
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
