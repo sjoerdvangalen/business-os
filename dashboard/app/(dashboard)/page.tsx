@@ -213,7 +213,7 @@ function StatCard({
 function ClientCard({ client }: { client: ClientRow }) {
   return (
     <Link
-      href={`/client/${client.client_code}`}
+      href={`/clients/${client.client_code}`}
       className={`block rounded-xl border p-4 transition-shadow hover:shadow-md ${healthBg(client.overall_health)}`}
     >
       <div className="flex items-center justify-between">
