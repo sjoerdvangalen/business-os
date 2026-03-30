@@ -47,39 +47,32 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ├── supabase/
 │   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push`)
 │   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
+│       ├── # Core Sync (Active)
 │       ├── sync-plusvibe-campaigns/    # Every 15 min via pg_cron
 │       ├── sync-plusvibe-accounts/     # Every 15 min via pg_cron
 │       ├── sync-plusvibe-warmup/       # Daily at 00:00 UTC via pg_cron
 │       ├── sync-plusvibe-leads/        # Every 15 min — lead catch-up sync
 │       ├── sync-domains/              # Daily — domain health from email accounts
 │       ├── sync-sequences/            # Every 15 min — email sequences from PlusVibe
+│       ├── # Webhooks (Active)
 │       ├── webhook-receiver/          # Real-time PlusVibe webhook events
 │       ├── lead-router/               # Routes leads based on PlusVibe labels
 │       ├── webhook-meeting/           # Multi-provider meeting webhook (Cal.com, Calendly, GHL)
-│       ├── meeting-review/            # Cron */5 min — sends Slack Block Kit review after meetings
 │       ├── webhook-slack-interaction/ # Slack button/modal handler for meeting reviews
+│       ├── # Processing (Active)
+│       ├── meeting-review/            # Cron */5 min — sends Slack Block Kit review after meetings
 │       ├── populate-daily-kpis/       # Daily KPI aggregation from PlusVibe analytics
 │       ├── campaign-monitor/          # Health checks every 15 min
 │       ├── domain-monitor/            # Deliverability check daily at 06:00 UTC
+│       ├── # Lead Generation (Active)
 │       ├── email-waterfall/           # TryKitt email verification (patterns)
 │       ├── ai-enrich-contact/         # AI enrichment for contacts
 │       ├── process-gmaps-batch/       # Process Google Maps scraper batches
 │       ├── find-contacts/             # A-Leads contact finder for companies
-│       ├── # GTM Framework CRUD (scaffolding — tables built, not yet used)
-│       ├── gtm-crud-strategies/       # GTM strategy management
-│       ├── gtm-crud-solutions/        # Solution definition CRUD
-│       ├── gtm-crud-segments/         # ICP segment management
-│       ├── gtm-crud-personas/         # Buyer persona CRUD
-│       ├── gtm-crud-cells/            # Campaign cell management
-│       ├── gtm-crud-runs/             # Campaign run operations
-│       ├── gtm-crud-variants/         # Campaign variant testing
-│       ├── # Analytics & Tracking
-│       ├── analyze-attribution/       # Attribution analysis
-│       ├── analyze-icp/               # ICP performance analysis
-│       ├── detect-anomalies/          # Anomaly detection for metrics
-│       ├── # Infrastructure
-│       ├── setup-cron-jobs/           # Cron job initialization
-│       └── webhook-debug/             # Webhook debugging tool
+│       └── # Phase 2 Scaffolding (GTM Framework — reserved for future)
+│           gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments
+│           gtm-crud-personas, gtm-crud-cells, gtm-crud-runs, gtm-crud-variants
+│           analyze-attribution, analyze-icp, detect-anomalies
 └── sync/
     └── import-airtable.ts             # One-time import script (already run)
 ```
@@ -126,29 +119,23 @@ Revenue model: retainer + meeting fees + commission on closed deals.
   - `status` mirrors `meetings.booking_status` (1:1)
   - `meeting_id`, `campaign_id`, `lead_id`, `client_id`
 
-### GTM Framework — Scaffolding (all 0 rows, built but not yet activated)
-- `gtm_strategies` **[scaffolding]** — Top-level GTM strategy per client
-- `icp_segments` **[scaffolding]** — ICP segment definitions
-- `campaign_plans` **[scaffolding — 1 row]** — Campaign plan linked to strategy
-- `campaign_runs` **[scaffolding]** — Execution runs per plan
-- `campaign_cells` **[scaffolding]** — Individual targeting cells
-- `campaign_variants` **[scaffolding]** — A/B variants per cell
-
-### Lead Generation Pipeline — Scaffolding (all 0 rows)
-- `lead_pool` **[scaffolding]** — Incoming leads before enrichment (from GMaps scraper)
-- `contacts` **[scaffolding]** — Enriched contacts (after A-Leads find-contacts)
-- `solutions` **[scaffolding]** — Client solution definitions
-- `entry_offers` **[scaffolding]** — Front-end offer definitions
-- `proof_assets` **[scaffolding]** — Case studies, testimonials
-- `buyer_personas` **[scaffolding]** — Buyer persona definitions
-
 ### Other
-- `campaign_metrics` **[active]** — Campaign performance metrics
 - `scraper_runs` **[active]** — Google Maps scraper job tracking
-- `scraping_csv_exports` **[active]** — CSV export records
 - `user_profiles` **[active]** — Dashboard user profiles
 
-### Meeting Lifecycle
+### Phase 2 Scaffolding (Reserved — GTM Framework)
+These tables are built but empty (0 rows). Reserved for Phase 2 GTM Framework implementation.
+- `gtm_strategies` — Top-level GTM strategy per client
+- `icp_segments` — ICP segment definitions
+- `campaign_plans` — Campaign plan linked to strategy
+- `campaign_runs` — Execution runs per plan
+- `campaign_cells` — Individual targeting cells
+- `campaign_variants` — A/B variants per cell
+- `solutions` — Client solution definitions
+- `entry_offers` — Front-end offer definitions
+- `proof_assets` — Case studies, testimonials
+- `buyer_personas` — Buyer persona definitions
+- `contacts` — Enriched contacts (after A-Leads find-contacts)
 ```
 Webhook (Cal.com/Calendly/GHL)
   → webhook-meeting (token-based routing per client)
