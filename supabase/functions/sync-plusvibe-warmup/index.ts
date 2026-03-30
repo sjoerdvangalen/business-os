@@ -72,14 +72,17 @@ serve(async (req) => {
       domainRates.set(domain.toLowerCase(), Number(inboxPct) || 0)
     }
 
-    // Calculate aggregate inbox/spam from chart_data
+    // Use PlusVibe's own aggregate spam_percent, fall back to chart_data calculation
     const chartData = emailAcc.chart_data || []
-    let totalInbox = 0, totalSpam = 0, totalSent = 0
+    let totalSpam = 0, totalSent = 0
     for (const day of chartData) {
-      totalInbox += day.inbox || 0
       totalSpam += day.spam || 0
       totalSent += (day.inbox || 0) + (day.spam || 0) + (day.promotion || 0)
     }
+    // Compute once — same global rate applied to all inboxes (per-domain spam not available from PlusVibe)
+    const globalSpamRate = emailAcc.spam_percent != null
+      ? Math.round(Number(emailAcc.spam_percent))
+      : (totalSent > 0 ? Math.round(totalSpam / totalSent * 100) : 0)
 
     const now = new Date().toISOString()
     let updated = 0, failed = 0
@@ -95,12 +98,10 @@ serve(async (req) => {
       const inboxRate = domainRates.get(domain)
       if (inboxRate === undefined) continue
 
-      const spamRate = totalSent > 0 ? Math.round(totalSpam / totalSent * 100) : 0
-
       updates.push({
         id: inbox.id,
         latest_inbox_rate: inboxRate,
-        latest_spam_rate: spamRate,
+        latest_spam_rate: globalSpamRate,
         warmup_last_checked: now,
       })
     }

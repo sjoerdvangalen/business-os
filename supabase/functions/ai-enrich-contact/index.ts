@@ -13,9 +13,9 @@ const corsHeaders = {
  * Output: { enrichment_data: object }
  */
 
-// Kimi API config (via CCR)
-const KIMI_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-const KIMI_BASE_URL = Deno.env.get('ANTHROPIC_BASE_URL') || 'https://api.kimi.com/coding/';
+// Kimi API config — set KIMI_API_KEY + KIMI_BASE_URL in Supabase secrets
+const KIMI_API_KEY = Deno.env.get('KIMI_API_KEY');
+const KIMI_BASE_URL = (Deno.env.get('KIMI_BASE_URL') || 'https://api.kimi.com').replace(/\/$/, '');
 
 async function callKimi(prompt: string): Promise<any> {
   const response = await fetch(`${KIMI_BASE_URL}/v1/messages`, {

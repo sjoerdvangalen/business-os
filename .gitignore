@@ -27,3 +27,4 @@ gtm/storage/
 # Editor
 .vscode/
 .idea/
+.vercel

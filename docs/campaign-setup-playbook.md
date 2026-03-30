@@ -141,7 +141,7 @@ INSERT INTO campaign_cells (
 
 ### 2.3 Template B v2 invullen
 
-Voor elke cell maak je een Google Doc (via orchestrator of handmatig):
+Voor elke cel maak je een Google Doc (via orchestrator of handmatig):
 
 ```
 CAMPAIGN CELL BRIEF — Template B v2

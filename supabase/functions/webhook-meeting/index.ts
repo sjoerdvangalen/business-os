@@ -7,7 +7,7 @@ const corsHeaders = {
 }
 
 const PLUSVIBE_API_KEY = Deno.env.get('PLUSVIBE_API_KEY') || ''
-const PLUSVIBE_WORKSPACE = '68f8e5d7e13f67d591c4f0a8'
+const PLUSVIBE_WORKSPACE = Deno.env.get('PLUSVIBE_WORKSPACE_ID') || '68f8e5d7e13f67d591c4f0a8'
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -443,7 +443,9 @@ async function updatePlusVibeLead(email: string, campaignId: string) {
       method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: campaignId, email, new_status: 'COMPLETED' }),
     })
-  } catch (_) { /* non-critical */ }
+  } catch (err) {
+    console.error('[webhook-meeting] PlusVibe lead update failed (non-critical):', (err as Error).message)
+  }
 }
 
 async function updatePlusVibeByDomain(supabase: any, email: string) {
@@ -457,9 +459,11 @@ async function updatePlusVibeByDomain(supabase: any, email: string) {
       fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
         method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: dc.plusvibe_campaign_id, email: dc.email, new_status: 'COMPLETED' }),
-      }).catch(() => {})
+      }).catch((err: Error) => console.error('[webhook-meeting] PlusVibe domain sync failed:', err.message))
     }
-  } catch (_) { /* skip */ }
+  } catch (err) {
+    console.error('[webhook-meeting] updatePlusVibeByDomain failed:', (err as Error).message)
+  }
 }
 
 // ============================================================
