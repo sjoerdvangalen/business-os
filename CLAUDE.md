@@ -93,17 +93,18 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - `email_inboxes` **[active — 4,391 rows]** — Synced from PlusVibe
 - `domains` **[active — 1 row]** — Email sending domains
   - `spf_status`, `dkim_status`, `dmarc_status` — set by domain-monitor
-- `leads` **[active — 27,857 rows]** — Synced from PlusVibe + real-time via webhooks
-  - `reply_classification` — NOT_INTERESTED/BLOCKLIST/FUTURE_REQUEST/MEETING_REQUEST/INFO_REQUEST/OOO/POSITIVE/NEUTRAL
-  - `lead_status` — new/contacted/replied/interested/meeting_booked/not_interested/blocklisted
-- `companies` **[active — 17,524 rows]** — Lead companies (linked to leads). Note: this is the active account hub, not `accounts` (which doesn't exist).
+- `companies` **[active — 17,524 rows]** — Account foundation. Canonical company table. FK target for contacts.
+  - New columns added: website, city, state, country, industry, employee_count, employee_range, source, enrichment_data, tags, last_enriched_at
+- `contacts` **[active — 27,637 rows]** — Unified person pool, reusable across clients. `company_id FK → companies`.
+  - `email_verified`, `email_verified_at`, `email_waterfall_status` — replaces email_cache
+  - `contact_status` — new/targeted/responded/meeting_booked/not_interested
+- `contact_campaigns` **[active — 24,259 rows]** — Linking table: contact × campaign × client. The "lead" interaction record.
+  - `plusvibe_lead_id` — external PlusVibe reference
+  - `campaign_status` — added/sent/replied/meeting_booked/completed
+- `leads` **[active — 27,857 rows]** — Legacy PlusVibe sync table. Being phased out in favour of contacts + contact_campaigns.
 - `email_threads` **[active — 46,760 rows]** — Individual email records (direction, body_text, from_email, to_email, thread_id). Real-time via webhook-receiver.
 - `email_sequences` **[active]** — Email steps within campaigns (synced from PlusVibe)
-- `email_cache` **[active]** — Email verification cache (TryKitt)
-- `mx_cache` **[active]** — MX record cache for email verification
-- `sync_log` **[active — 13,321 rows]** — Tracks every sync + agent operation
-- `agent_memory` **[active — 2,807 rows]** — AI agent context, alerts, classification logs, routing logs
-- `webhook_logs` **[active]** — Webhook event log (debug/audit)
+- `sync_log` **[active]** — Tracks every sync + agent operation
 
 ### Meeting & CRM
 - `client_integrations` **[active]** — Per-client calendar/webhook integrations
@@ -123,19 +124,20 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - `scraper_runs` **[active]** — Google Maps scraper job tracking
 - `user_profiles` **[active]** — Dashboard user profiles
 
-### Phase 2 Scaffolding (Reserved — GTM Framework)
-These tables are built but empty (0 rows). Reserved for Phase 2 GTM Framework implementation.
-- `gtm_strategies` — Top-level GTM strategy per client
-- `icp_segments` — ICP segment definitions
-- `campaign_plans` — Campaign plan linked to strategy
-- `campaign_runs` — Execution runs per plan
-- `campaign_cells` — Individual targeting cells
-- `campaign_variants` — A/B variants per cell
-- `solutions` — Client solution definitions
-- `entry_offers` — Front-end offer definitions
-- `proof_assets` — Case studies, testimonials
-- `buyer_personas` — Buyer persona definitions
-- `contacts` — Enriched contacts (after A-Leads find-contacts)
+### GTM Framework
+- `campaign_cells` **[active — 0 rows, new schema]** — Atomic GTM unit: Solution × ICP × Persona × Offer.
+  - `brief` JSONB — offer, hook_themes, aleads_config, pain_mapping
+  - `runs` JSONB array — H1/F1/CTA1/SCALE test phases + variants (replaces campaign_runs + campaign_variants)
+  - `campaign_id FK → campaigns` — nullable until PlusVibe campaign is linked
+- `clients.gtm_synthesis` JSONB — AI-synthesized strategy per client (solutions, icp_segments, personas, entry_offers)
+
+### Pending Drop (migration written, not yet pushed)
+- `gtm_strategies`, `icp_segments`, `campaign_plans`, `campaign_runs`, `campaign_variants` — replaced by campaign_cells + clients.gtm_synthesis
+- `buyer_personas`, `entry_offers`, `solutions`, `proof_assets` — replaced by clients.gtm_synthesis JSONB
+- `businesses` — replaced by `companies` (canonical)
+- `email_cache` — replaced by contacts.email_verified + email_verified_at
+- `agent_memory` — all stale data (anomaly baselines + slack_pending)
+- `webhook_logs` — debug-only, 46k stale rows
 ```
 Webhook (Cal.com/Calendly/GHL)
   → webhook-meeting (token-based routing per client)

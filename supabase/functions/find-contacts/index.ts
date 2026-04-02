@@ -81,7 +81,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Haal company op
+    // Haal business op
     const { data: company, error: companyError } = await supabase
       .from('companies')
       .select('*')
@@ -90,7 +90,7 @@ serve(async (req) => {
 
     if (companyError || !company) {
       return new Response(
-        JSON.stringify({ error: 'Company not found' }),
+        JSON.stringify({ error: 'Business not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -102,11 +102,11 @@ serve(async (req) => {
       );
     }
 
-    // Check of we al contacts hebben voor deze company
+    // Check of we al contacts hebben voor deze business
     const { data: existingContacts } = await supabase
       .from('contacts')
       .select('id')
-      .eq('lead_source_id', company_id)
+      .eq('source_id', company_id)
       .limit(1);
 
     if (existingContacts && existingContacts.length > 0) {
@@ -138,14 +138,15 @@ serve(async (req) => {
         .from('contacts')
         .insert({
           company_id: company.id,
-          client_id: company.client_id,
           first_name: contact.first_name,
           last_name: contact.last_name,
-          email: contact.email,
-          linkedin_url: contact.linkedin_url,
-          title: contact.title,
-          lead_source: 'a-leads',
-          lead_source_id: company_id,
+          email: contact.email || null,
+          email_verified: false,
+          linkedin_url: contact.linkedin_url || null,
+          title: contact.title || null,
+          department: contact.seniority || null,
+          source: 'a-leads',
+          source_id: company_id,
           email_waterfall_status: contact.email ? 'existing' : 'pending',
           enrichment_data: {
             confidence_score: contact.confidence_score,
@@ -161,14 +162,11 @@ serve(async (req) => {
       }
     }
 
-    // Update company status
+    // Update business: laatste enrichment timestamp
     if (created > 0) {
       await supabase
         .from('companies')
-        .update({
-          status: 'enriched',
-          enriched_at: new Date().toISOString(),
-        })
+        .update({ last_enriched_at: new Date().toISOString() })
         .eq('id', company_id);
     }
 

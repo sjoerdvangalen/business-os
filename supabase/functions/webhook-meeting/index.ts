@@ -158,8 +158,8 @@ async function handleCreated(
   let contact: any = null
   if (n.attendeeEmail) {
     const { data } = await supabase
-      .from('leads')
-      .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
+      .from('contacts')
+      .select('id, email, first_name, last_name, full_name, client_id, last_campaign_id, source_id')
       .eq('email', n.attendeeEmail.toLowerCase())
       .limit(1)
       .maybeSingle()
@@ -168,8 +168,8 @@ async function handleCreated(
 
   if (!contact && n.attendeeName && client?.id) {
     const { data } = await supabase
-      .from('leads')
-      .select('id, email, first_name, last_name, full_name, client_id, campaign_id, company, plusvibe_lead_id, plusvibe_campaign_id')
+      .from('contacts')
+      .select('id, email, first_name, last_name, full_name, client_id, last_campaign_id, source_id')
       .eq('client_id', client.id)
       .eq('full_name', n.attendeeName)
       .limit(1)
@@ -177,21 +177,41 @@ async function handleCreated(
     contact = data
   }
 
-  // Update PlusVibe
-  if (contact?.plusvibe_campaign_id && contact?.email) {
-    await updatePlusVibeLead(contact.email, contact.plusvibe_campaign_id)
+  // Update PlusVibe — source_id is de plusvibe_lead_id, last_campaign_id geeft de campaign context
+  if (contact?.source_id && contact?.email) {
+    // Haal plusvibe campaign_id op via contact_campaigns
+    const { data: cc } = await supabase
+      .from('contact_campaigns')
+      .select('plusvibe_lead_id')
+      .eq('contact_id', contact.id)
+      .not('plusvibe_lead_id', 'is', null)
+      .order('added_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (cc?.plusvibe_lead_id) {
+      // Bepaal plusvibe campaign_id via campaigns tabel
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('plusvibe_id')
+        .eq('id', contact.last_campaign_id)
+        .maybeSingle()
+      if (camp?.plusvibe_id) {
+        await updatePlusVibeLead(contact.email, camp.plusvibe_id)
+      }
+    }
   }
   await updatePlusVibeByDomain(supabase, n.attendeeEmail)
 
   // Update contact
   if (contact) {
-    await supabase.from('leads').update({
-      lead_status: 'meeting_booked', label: 'MEETING_BOOKED',
+    await supabase.from('contacts').update({
+      contact_status: 'meeting_booked',
+      meetings_booked_count: 1,
     }).eq('id', contact.id)
   }
 
   // Find or create opportunity
-  const companyName = contact?.company || extractDomainName(n.attendeeEmail) || n.attendeeName || 'Unknown'
+  const companyName = extractDomainName(n.attendeeEmail) || n.attendeeName || 'Unknown'
   let opp: any = null
   let oppIsNew = false
 
@@ -452,13 +472,20 @@ async function updatePlusVibeByDomain(supabase: any, email: string) {
   try {
     const domain = email.split('@')[1]
     if (!domain) return
-    const { data } = await supabase.from('leads').select('email, plusvibe_campaign_id')
-      .like('email', `%@${domain}`).not('plusvibe_campaign_id', 'is', null).limit(50)
-    for (const dc of (data || [])) {
+    // Zoek contacts met zelfde domein via contact_campaigns (plusvibe campaign info)
+    const { data: domainContacts } = await supabase
+      .from('contacts')
+      .select('email, contact_campaigns(plusvibe_lead_id, campaign:campaigns(plusvibe_id))')
+      .like('email', `%@${domain}`)
+      .not('email', 'is', null)
+      .limit(50)
+    for (const dc of (domainContacts || [])) {
       if (dc.email === email) continue
+      const cc = (dc as any).contact_campaigns?.[0]
+      if (!cc?.plusvibe_lead_id || !cc?.campaign?.plusvibe_id) continue
       fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
         method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: dc.plusvibe_campaign_id, email: dc.email, new_status: 'COMPLETED' }),
+        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: cc.campaign.plusvibe_id, email: dc.email, new_status: 'COMPLETED' }),
       }).catch((err: Error) => console.error('[webhook-meeting] PlusVibe domain sync failed:', err.message))
     }
   } catch (err) {

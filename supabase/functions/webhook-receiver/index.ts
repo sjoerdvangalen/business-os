@@ -40,7 +40,8 @@ function emailToDomain(email: string): string {
 
 /**
  * Find or create a contact — used for ALL event types
- * Lookup order: email → plusvibe_lead_id → create new
+ * Lookup order: email → source_id (plusvibe_lead_id) → create new
+ * Uses unified contacts + companies tables.
  */
 async function findOrCreateContact(
   supabase: ReturnType<typeof createClient>,
@@ -54,23 +55,20 @@ async function findOrCreateContact(
     companyDomain: string
     personLinkedin: string
     companyLinkedin: string
-    senderEmail: string
-    ccEmail: string
     clientId: string | null
     campaignId: string | null
-    plusvibeCampId: string
     requestId: string
   }
-): Promise<{ id: string; company_id: string | null; replied_count: number; lead_status: string; is_first_reply: boolean | null } | null> {
-  const { leadEmail, plusvibeLeadId, firstName, lastName, companyName, companyWebsite, companyDomain, personLinkedin, companyLinkedin, senderEmail, ccEmail, clientId, campaignId, plusvibeCampId, requestId } = opts
+): Promise<{ id: string; company_id: string | null; reply_count: number; contact_status: string } | null> {
+  const { leadEmail, plusvibeLeadId, firstName, lastName, companyName, companyWebsite, companyDomain, personLinkedin, companyLinkedin, clientId, campaignId, requestId } = opts
 
   if (!leadEmail) return null
 
   // 1. Find by email
   try {
     const { data } = await supabase
-      .from('leads')
-      .select('id, company_id, replied_count, lead_status, is_first_reply')
+      .from('contacts')
+      .select('id, company_id, reply_count, contact_status')
       .eq('email', leadEmail)
       .limit(1)
       .single()
@@ -80,28 +78,28 @@ async function findOrCreateContact(
     }
   } catch { /* not found */ }
 
-  // 2. Find by plusvibe_lead_id
+  // 2. Find by source_id (plusvibe_lead_id)
   if (plusvibeLeadId) {
     try {
       const { data } = await supabase
-        .from('leads')
-        .select('id, company_id, replied_count, lead_status, is_first_reply')
-        .eq('plusvibe_lead_id', plusvibeLeadId)
+        .from('contacts')
+        .select('id, company_id, reply_count, contact_status')
+        .eq('source', 'plusvibe')
+        .eq('source_id', plusvibeLeadId)
         .limit(1)
         .single()
       if (data) {
-        console.log(`[${requestId}] Contact found by plusvibe_lead_id: ${data.id}`)
+        console.log(`[${requestId}] Contact found by plusvibe source_id: ${data.id}`)
         return data
       }
     } catch { /* not found */ }
   }
 
-  // 3. Not found → create contact + account
+  // 3. Not found → find/create business first (company_id is NOT NULL on contacts)
   console.log(`[${requestId}] Contact not found, creating new. Email: ${leadEmail}`)
 
-  // Find or create account
-  let accountId: string | null = null
   const domain = companyDomain || emailToDomain(leadEmail)
+  let businessId: string | null = null
 
   if (domain) {
     try {
@@ -111,10 +109,10 @@ async function findOrCreateContact(
         .eq('domain', domain)
         .limit(1)
         .single()
-      accountId = byDomain?.id || null
+      businessId = byDomain?.id || null
     } catch { /* not found */ }
   }
-  if (!accountId && companyName) {
+  if (!businessId && companyName) {
     try {
       const { data: byName } = await supabase
         .from('companies')
@@ -122,52 +120,57 @@ async function findOrCreateContact(
         .ilike('name', companyName)
         .limit(1)
         .single()
-      accountId = byName?.id || null
+      businessId = byName?.id || null
     } catch { /* not found */ }
   }
 
+  // Create business if still not found (contacts requires company_id NOT NULL)
+  if (!businessId) {
+    const { data: newBusiness } = await supabase
+      .from('companies')
+      .insert({
+        name: companyName || domain || 'Unknown',
+        domain: domain || null,
+        website: companyWebsite || null,
+        linkedin_url: companyLinkedin || null,
+        source: 'plusvibe',
+      })
+      .select('id')
+      .single()
+    businessId = newBusiness?.id || null
+  }
+
+  if (!businessId) {
+    console.error(`[${requestId}] Failed to find/create business for ${leadEmail}`)
+    return null
+  }
+
   // Create contact
-  const { data: newContact } = await supabase.from('leads').insert({
-    client_id: clientId,
-    company_id: accountId,
-    campaign_id: campaignId,
-    email: leadEmail,
-    first_name: firstName,
-    last_name: lastName,
-    full_name: `${firstName} ${lastName}`.trim() || null,
-    plusvibe_lead_id: plusvibeLeadId || null,
-    plusvibe_campaign_id: plusvibeCampId || null,
-    linkedin_url: personLinkedin || null,
-    company: companyName || null,
-    company_website: companyWebsite || null,
-    sender_email: senderEmail || null,
-    cc_email: ccEmail || null,
-    lead_status: 'new',
-    replied_count: 0,
-  }).select('id').single()
+  const { data: newContact } = await supabase
+    .from('contacts')
+    .insert({
+      company_id: businessId,
+      client_id: clientId,
+      last_campaign_id: campaignId || null,
+      email: leadEmail,
+      first_name: firstName || null,
+      last_name: lastName || null,
+      linkedin_url: personLinkedin || null,
+      source: 'plusvibe',
+      source_id: plusvibeLeadId || null,
+      contact_status: 'new',
+      reply_count: 0,
+    })
+    .select('id')
+    .single()
 
   if (!newContact) {
     console.error(`[${requestId}] Failed to create contact for ${leadEmail}`)
     return null
   }
 
-  // Create account if needed
-  if (!accountId) {
-    const { data: newAccount } = await supabase.from('companies').insert({
-      client_id: clientId,
-      name: companyName || domain || 'Unknown',
-      domain: domain || null,
-      linkedin_url: companyLinkedin || null,
-    }).select('id').single()
-
-    if (newAccount) {
-      await supabase.from('leads').update({ company_id: newAccount.id }).eq('id', newContact.id)
-      accountId = newAccount.id
-    }
-  }
-
-  console.log(`[${requestId}] Contact created: ${newContact.id}, account: ${accountId}`)
-  return { id: newContact.id, company_id: accountId, replied_count: 0, lead_status: 'new', is_first_reply: null }
+  console.log(`[${requestId}] Contact created: ${newContact.id}, business: ${businessId}`)
+  return { id: newContact.id, company_id: businessId, reply_count: 0, contact_status: 'new' }
 }
 
 serve(async (req) => {
@@ -197,16 +200,8 @@ serve(async (req) => {
     requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
     console.log(`[${requestId}] Webhook received:`, JSON.stringify(payload).substring(0, 500))
 
-    // ── Log webhook to database for debugging ──
-    await supabase.from('webhook_logs').insert({
-      source: 'plusvibe',
-      event_type: payload.webhook_event || payload.event || 'unknown',
-      payload: payload,
-      status: 'received',
-      request_id: requestId,
-    }).then(({ error }) => {
-      if (error) console.error(`[${requestId}] Failed to log webhook:`, error.message)
-    })
+    // webhook_logs tabel is gedropped — log alleen naar console
+    console.log(`[${requestId}] Webhook event: ${payload.webhook_event || payload.event || 'unknown'}`)
 
     // ── Extract PlusVibe webhook fields ──
     const eventType = (payload.webhook_event || payload.event || payload.event_type || '') as string
@@ -301,11 +296,8 @@ serve(async (req) => {
       companyDomain,
       personLinkedin,
       companyLinkedin,
-      senderEmail,
-      ccEmail,
       clientId,
       campaignId: campaign?.id || null,
-      plusvibeCampId,
       requestId,
     })
 
@@ -320,14 +312,13 @@ serve(async (req) => {
 
         // Update contact with reply info
         if (contact) {
-          const isFirstReply = !contact.is_first_reply && (contact.replied_count || 0) === 0
-          await supabase.from('leads').update({
-            replied_count: (contact.replied_count || 0) + 1,
+          await supabase.from('contacts').update({
+            reply_count: (contact.reply_count || 0) + 1,
             last_reply_at: new Date().toISOString(),
-            email_history: cleanedBody,
-            is_first_reply: isFirstReply ? true : contact.is_first_reply,
-            sender_email: senderEmail || undefined,
-            lead_status: contact.lead_status === 'new' ? 'replied' : contact.lead_status,
+            first_reply_at: (contact.reply_count || 0) === 0 ? new Date().toISOString() : undefined,
+            contact_status: contact.contact_status === 'new' || contact.contact_status === 'targeted'
+              ? 'responded'
+              : contact.contact_status,
           }).eq('id', contact.id)
         }
 
@@ -412,9 +403,14 @@ serve(async (req) => {
           console.log(`[${requestId}] Email sent stored: ${sentPlusvideId} to ${leadEmail}`)
         }
 
-        // Update contact status to contacted if still new
-        if (contact && contact.lead_status === 'new') {
-          await supabase.from('leads').update({ lead_status: 'contacted' }).eq('id', contact.id)
+        // Update contact status to targeted if still new
+        if (contact && contact.contact_status === 'new') {
+          await supabase.from('contacts').update({
+            contact_status: 'targeted',
+            first_targeted_at: new Date().toISOString(),
+            last_targeted_at: new Date().toISOString(),
+            times_targeted: 1,
+          }).eq('id', contact.id)
         }
 
         break
@@ -435,11 +431,10 @@ serve(async (req) => {
         const label = eventType.replace('LEAD_MARKED_AS_', '')
 
         if (contact) {
-          await supabase.from('leads').update({
-            label: label,
-            lead_status: label.toLowerCase().includes('interested') ? 'interested'
+          await supabase.from('contacts').update({
+            contact_status: label.toLowerCase().includes('interested') ? 'responded'
               : label.toLowerCase().includes('meeting') ? 'meeting_booked'
-              : contact.lead_status,
+              : contact.contact_status,
           }).eq('id', contact.id)
         }
 

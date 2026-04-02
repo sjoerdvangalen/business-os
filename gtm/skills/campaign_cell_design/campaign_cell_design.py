@@ -371,6 +371,41 @@ def result_to_dict(result: CampaignCellDesignResult) -> dict:
         "campaign_cells": [cell_to_dict(cell) for cell in result.campaign_cells]}
 
 
+def generate_aleads_config(
+    cell_brief: dict,
+    icp_segment: dict,
+    volume: int = 1000,
+) -> dict:
+    """
+    Generate aleads_config for a campaign cell's brief.
+
+    Merges cell-level overrides with ICP segment defaults.
+    Output is stored in campaign_cells.brief.aleads_config.
+
+    Args:
+        cell_brief: The cell brief dict (may have partial aleads_config already)
+        icp_segment: The ICP segment definition (from clients.gtm_synthesis.icp_segments)
+        volume: Target list size (default 1000 per H1 phase)
+
+    Returns:
+        aleads_config dict ready for storage in brief.aleads_config
+    """
+    existing = cell_brief.get("aleads_config", {})
+
+    return {
+        "industry": existing.get("industry") or icp_segment.get("industries", []),
+        "headcount": existing.get("headcount") or {
+            "min": icp_segment.get("headcount_min", 50),
+            "max": icp_segment.get("headcount_max", 500),
+        },
+        "country": existing.get("country") or icp_segment.get("countries", []),
+        "keywords_include": existing.get("keywords_include") or icp_segment.get("keywords_include", []),
+        "keywords_exclude": existing.get("keywords_exclude") or icp_segment.get("keywords_exclude", []),
+        "job_titles": existing.get("job_titles") or icp_segment.get("target_job_titles", []),
+        "volume": existing.get("volume") or volume,
+    }
+
+
 if __name__ == "__main__":
     test_client = {"client_code": "SECX", "client_name": "SentioCX"}
     test_solutions = [{"name": "AI Routing", "short_name": "Routing", "offer_tier": "good", "primary_pain": "Random escalations overwhelming supervisors", "entry_offer_name": "Escalation Audit"}]

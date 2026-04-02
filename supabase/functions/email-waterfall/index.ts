@@ -105,7 +105,7 @@ serve(async (req) => {
     // 1. Haal contact op
     const { data: contact, error: contactError } = await supabase
       .from('contacts')
-      .select('id, first_name, last_name, email, linkedin_url, company_id')
+      .select('id, first_name, last_name, email, linkedin_url, business_id')
       .eq('id', contact_id)
       .single();
 
@@ -124,19 +124,19 @@ serve(async (req) => {
       );
     }
 
-    // Haal domain op van company
-    const { data: company } = await supabase
+    // Haal domain op van business
+    const { data: business } = await supabase
       .from('companies')
       .select('domain, website')
-      .eq('id', contact.company_id)
+      .eq('id', contact.business_id)
       .single();
 
-    const domain = company?.domain || extractDomainFromWebsite(company?.website);
+    const domain = business?.domain || extractDomainFromWebsite(business?.website);
 
     if (!domain) {
       await supabase
         .from('contacts')
-        .update({ email_waterfall_status: 'failed' })
+        .update({ email_waterfall_status: 'failed', email_verified: false })
         .eq('id', contact_id);
 
       return new Response(
@@ -145,45 +145,9 @@ serve(async (req) => {
       );
     }
 
-    // 2. CHECK CACHE
-    const linkedinSlug = extractLinkedInSlug(contact.linkedin_url);
-
-    if (linkedinSlug) {
-      const { data: cached } = await supabase
-        .from('email_cache')
-        .select('*')
-        .eq('linkedin_slug', linkedinSlug)
-        .gt('expires_at', new Date().toISOString())
-        .single();
-
-      if (cached?.is_valid) {
-        // Update contact met cached email
-        await supabase
-          .from('contacts')
-          .update({
-            email: cached.email,
-            email_waterfall_status: 'cache_hit',
-            email_waterfall_log: { cachedAt: cached.validated_at, lookupCount: cached.lookup_count + 1 }
-          })
-          .eq('id', contact_id);
-
-        // Update lookup count
-        await supabase
-          .from('email_cache')
-          .update({
-            lookup_count: cached.lookup_count + 1,
-            last_lookup_at: new Date().toISOString()
-          })
-          .eq('id', cached.id);
-
-        return new Response(
-          JSON.stringify({ email: cached.email, source: 'cache', cost: 0 }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-    }
-
-    // 3. PATTERN GENERATIE + TRY KITT VERIFY
+    // 2. PATTERN GENERATIE + TRY KITT VERIFY
+    // Note: cache check is niet meer nodig — als het contact al een geverifieerd email heeft
+    // wordt dat al teruggegeven op regel 120 via de bestaande email check.
     const patterns = generatePatterns(contact.first_name || '', contact.last_name || '', domain);
     const waterfallLog = {
       patternsTried: patterns,
@@ -202,29 +166,14 @@ serve(async (req) => {
       });
 
       if (verification.isValid) {
-        // Cache resultaat
-        if (linkedinSlug) {
-          await supabase
-            .from('email_cache')
-            .upsert({
-              linkedin_slug: linkedinSlug,
-              email: pattern,
-              is_valid: true,
-              validation_source: 'trykitt',
-              validation_method: 'pattern',
-              confidence_score: verification.score || 80,
-              validated_at: new Date().toISOString(),
-              expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
-            });
-        }
-
-        // Update contact
+        // Update contact met verified email
         await supabase
           .from('contacts')
           .update({
             email: pattern,
+            email_verified: true,
+            email_verified_at: new Date().toISOString(),
             email_waterfall_status: 'verified',
-            email_waterfall_log: waterfallLog
           })
           .eq('id', contact_id);
 
@@ -236,14 +185,11 @@ serve(async (req) => {
     }
 
     // Geen patterns werkten
-    waterfallLog.endedAt = new Date().toISOString();
-    waterfallLog.allFailed = true;
-
     await supabase
       .from('contacts')
       .update({
+        email_verified: false,
         email_waterfall_status: 'failed',
-        email_waterfall_log: waterfallLog
       })
       .eq('id', contact_id);
 

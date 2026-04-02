@@ -40,16 +40,28 @@ serve(async (req) => {
 
     // Pre-load existing contacts by plusvibe_lead_id for dedup
     const { data: existingContacts } = await supabase
-      .from('leads')
-      .select('id, plusvibe_lead_id, email')
+      .from('contacts')
+      .select('id, source_id, email')
     const byPlusvibeId = new Map<string, string>()
     const byEmail = new Map<string, string>()
     for (const c of existingContacts || []) {
-      if (c.plusvibe_lead_id) byPlusvibeId.set(c.plusvibe_lead_id, c.id)
+      if (c.source_id) byPlusvibeId.set(c.source_id, c.id)
       if (c.email) byEmail.set(c.email.toLowerCase(), c.id)
     }
 
+    // Pre-load companies by domain for linking
+    const { data: existingBusinesses } = await supabase
+      .from('companies')
+      .select('id, domain, name')
+    const businessByDomain = new Map<string, string>()
+    const businessByName = new Map<string, string>()
+    for (const b of existingBusinesses || []) {
+      if (b.domain) businessByDomain.set(b.domain.toLowerCase(), b.id)
+      businessByName.set(b.name.toLowerCase(), b.id)
+    }
+
     let created = 0, updated = 0, skipped = 0, failed = 0
+    let companiesCreated = 0
     let page = 1
     let hasMore = true
     const pageSize = 100
@@ -74,32 +86,91 @@ serve(async (req) => {
 
       for (const lead of leads) {
         const campaignInfo = lead.camp_id ? campaignMap.get(lead.camp_id) : null
+        if (!campaignInfo) {
+          skipped++
+          continue
+        }
 
+        const leadPvId = (lead.id || lead._id)?.toString()
+        const existingId = leadPvId ? byPlusvibeId.get(leadPvId) : null
+        const existingByEmail = lead.email ? byEmail.get(lead.email.toLowerCase()) : null
+        const existingContactId = existingId || existingByEmail
+
+        // 1. Handle Business (create or get existing)
+        const companyName = lead.company || lead.company_name || 'Unknown Company'
+        const companyDomain = lead.website || lead.company_website
+          ? extractDomain(lead.website || lead.company_website)
+          : null
+
+        let businessId: string | null = null
+
+        if (companyDomain) {
+          businessId = businessByDomain.get(companyDomain.toLowerCase()) || null
+        }
+        if (!businessId) {
+          businessId = businessByName.get(companyName.toLowerCase()) || null
+        }
+
+        if (!businessId) {
+          // Create new business
+          const { data: newBusiness, error: businessError } = await supabase
+            .from('companies')
+            .insert({
+              name: companyName,
+              domain: companyDomain,
+              website: lead.website || lead.company_website,
+              city: lead.city,
+              state: lead.state,
+              country: lead.country,
+              industry: lead.industry,
+              source: 'plusvibe',
+              business_type: 'prospect',
+            })
+            .select('id')
+            .single()
+
+          if (businessError) {
+            console.error(`Failed to create business for "${companyName}":`, businessError.message)
+            failed++
+            continue
+          }
+
+          businessId = newBusiness!.id
+          companiesCreated++
+
+          // Add to lookup maps
+          if (companyDomain) businessByDomain.set(companyDomain.toLowerCase(), businessId)
+          businessByName.set(companyName.toLowerCase(), businessId)
+        }
+
+        // 2. Prepare Contact Data
         const contactData: Record<string, unknown> = {
-          plusvibe_lead_id: lead.id || lead._id,
+          company_id: businessId,
           email: lead.email,
           first_name: lead.first_name || lead.firstName,
           last_name: lead.last_name || lead.lastName,
-          company: lead.company || lead.company_name,
+          title: lead.title || lead.position || lead.job_title,
           position: lead.title || lead.position || lead.job_title,
           linkedin_url: lead.linkedin_url || lead.li_url,
           phone: lead.phone || lead.phone_number,
           city: lead.city,
           state: lead.state,
           country: lead.country,
-          industry: lead.industry,
-          company_website: lead.website || lead.company_website,
-          label: lead.label,
+          client_id: campaignInfo.client_id,
+          contact_status: mapContactStatus(lead.status, lead.label),
+          last_targeted_at: new Date().toISOString(),
+          last_campaign_id: campaignInfo.id,
+          reply_count: lead.replied_count || 0,
           source: 'plusvibe',
-          lead_status: mapLeadStatus(lead.status, lead.label),
-          campaign_id: campaignInfo?.id || null,
-          client_id: campaignInfo?.client_id || null,
-          plusvibe_campaign_id: lead.camp_id || null,
-          opened_count: lead.opened_count || 0,
-          replied_count: lead.replied_count || 0,
-          bounced: lead.is_bounced || false,
-          bounce_message: lead.bounce_message || null,
-          lead_score: lead.lead_score || 0,
+          source_id: leadPvId,
+          enrichment_data: {
+            plusvibe_data: {
+              opened_count: lead.opened_count || 0,
+              bounced: lead.is_bounced || false,
+              bounce_message: lead.bounce_message || null,
+              lead_score: lead.lead_score || 0,
+            }
+          }
         }
 
         // Remove null/undefined values
@@ -108,36 +179,67 @@ serve(async (req) => {
         }
 
         try {
-          const leadPvId = (lead.id || lead._id)?.toString()
-          const existingId = leadPvId ? byPlusvibeId.get(leadPvId) : null
-          const existingByEmail = lead.email ? byEmail.get(lead.email.toLowerCase()) : null
-          const existing = existingId || existingByEmail
+          let contactId: string
 
-          if (existing) {
+          if (existingContactId) {
+            // Update existing contact
             const { error } = await supabase
-              .from('leads')
-              .update(contactData)
-              .eq('id', existing)
+              .from('contacts')
+              .update({
+                ...contactData,
+                times_targeted: 1, // Will be incremented by trigger if exists
+              })
+              .eq('id', existingContactId)
+
             if (error) {
               console.error(`Update failed for "${lead.email}":`, error.message)
               failed++
-            } else {
-              updated++
+              continue
             }
+
+            contactId = existingContactId
+            updated++
           } else {
-            const { error } = await supabase
-              .from('leads')
+            // Insert new contact
+            const { data: newContact, error } = await supabase
+              .from('contacts')
               .insert(contactData)
+              .select('id')
+              .single()
+
             if (error) {
               console.error(`Insert failed for "${lead.email}":`, error.message)
               failed++
-            } else {
-              created++
-              // Add to lookup maps for dedup within this run
-              if (leadPvId) byPlusvibeId.set(leadPvId, 'new')
-              if (lead.email) byEmail.set(lead.email.toLowerCase(), 'new')
+              continue
             }
+
+            contactId = newContact!.id
+            created++
+
+            // Add to lookup maps for dedup within this run
+            if (leadPvId) byPlusvibeId.set(leadPvId, contactId)
+            if (lead.email) byEmail.set(lead.email.toLowerCase(), contactId)
           }
+
+          // 3. Create/Update contact_campaigns link
+          const { error: linkError } = await supabase
+            .from('contact_campaigns')
+            .upsert({
+              contact_id: contactId,
+              campaign_id: campaignInfo.id,
+              client_id: campaignInfo.client_id,
+              campaign_status: mapCampaignStatus(lead.status, lead.label),
+              plusvibe_lead_id: leadPvId,
+              first_sent_at: lead.sent_at || new Date().toISOString(),
+              first_reply_at: lead.first_reply_at || lead.replied_at,
+            }, {
+              onConflict: 'contact_id,campaign_id'
+            })
+
+          if (linkError) {
+            console.error(`Failed to link contact to campaign:`, linkError.message)
+          }
+
         } catch (e) {
           console.error(`Error for "${lead.email}":`, e)
           failed++
@@ -159,19 +261,28 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'leads',
+      table_name: 'contacts',
       operation: 'full_sync',
       records_processed: created + updated + skipped + failed,
       records_created: created,
       records_updated: updated,
       records_failed: failed,
+      metadata: { companies_created: companiesCreated },
       started_at: startedAt.toISOString(),
       completed_at: completedAt.toISOString(),
       duration_ms: completedAt.getTime() - startedAt.getTime(),
     })
 
     return new Response(
-      JSON.stringify({ success: true, pages: page, created, updated, skipped, failed }),
+      JSON.stringify({
+        success: true,
+        pages: page,
+        contacts_created: created,
+        contacts_updated: updated,
+        companies_created: companiesCreated,
+        skipped,
+        failed
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
@@ -179,7 +290,7 @@ serve(async (req) => {
     const completedAt = new Date()
     await supabase.from('sync_log').insert({
       source: 'plusvibe',
-      table_name: 'leads',
+      table_name: 'contacts',
       operation: 'full_sync',
       records_failed: 1,
       error_message: (error as Error).message,
@@ -195,20 +306,49 @@ serve(async (req) => {
   }
 })
 
-function mapLeadStatus(pvStatus: string | undefined, label: string | undefined): string {
+function mapContactStatus(pvStatus: string | undefined, label: string | undefined): string {
   if (!pvStatus && !label) return 'new'
 
-  // Map PlusVibe statuses
   const status = (pvStatus || '').toLowerCase()
-  if (status === 'completed' || status === 'complete') return 'completed'
-  if (status === 'in_progress' || status === 'inprogress') return 'contacted'
+  if (status === 'completed' || status === 'complete') return 'qualified'
+  if (status === 'in_progress' || status === 'inprogress') return 'targeted'
 
-  // Map labels to status
   const lbl = (label || '').toLowerCase()
-  if (lbl.includes('interested') || lbl.includes('positive')) return 'interested'
+  if (lbl.includes('interested') || lbl.includes('positive')) return 'responded'
   if (lbl.includes('meeting') || lbl.includes('booked')) return 'meeting_booked'
   if (lbl.includes('not_interested') || lbl.includes('negative')) return 'not_interested'
-  if (lbl.includes('ooo') || lbl.includes('out_of_office')) return 'ooo'
+  if (lbl.includes('ooo') || lbl.includes('out_of_office')) return 'responded'
 
-  return 'new'
+  return 'targeted'
+}
+
+function mapCampaignStatus(pvStatus: string | undefined, label: string | undefined): string {
+  if (!pvStatus && !label) return 'added'
+
+  const status = (pvStatus || '').toLowerCase()
+  if (status === 'completed' || status === 'complete') return 'completed'
+  if (status === 'in_progress' || status === 'inprogress') return 'sent'
+
+  const lbl = (label || '').toLowerCase()
+  if (lbl.includes('interested') || lbl.includes('positive')) return 'replied'
+  if (lbl.includes('meeting') || lbl.includes('booked')) return 'meeting_booked'
+  if (lbl.includes('not_interested') || lbl.includes('negative')) return 'completed'
+  if (lbl.includes('ooo') || lbl.includes('out_of_office')) return 'replied'
+
+  return 'sent'
+}
+
+function extractDomain(url: string | undefined): string | null {
+  if (!url) return null
+  try {
+    // Remove protocol
+    let domain = url.replace(/^https?:\/\//, '')
+    // Remove www.
+    domain = domain.replace(/^www\./, '')
+    // Remove path
+    domain = domain.split('/')[0]
+    return domain.toLowerCase()
+  } catch {
+    return null
+  }
 }
