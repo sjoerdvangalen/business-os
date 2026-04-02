@@ -42,6 +42,12 @@ JOIN companies comp ON comp.domain = b.domain
 WHERE c.business_id = b.id
   AND c.company_id IS NULL;
 
+-- Drop RLS policies that reference business_id before dropping the column
+DROP POLICY IF EXISTS "client viewer sees own businesses" ON businesses;
+DROP POLICY IF EXISTS "agency staff see all businesses" ON businesses;
+DROP POLICY IF EXISTS "agency admin manage businesses" ON businesses;
+DROP POLICY IF EXISTS "agency staff insert businesses" ON businesses;
+
 -- Drop old FK column (businesses will be dropped next)
 ALTER TABLE contacts DROP COLUMN IF EXISTS business_id;
 

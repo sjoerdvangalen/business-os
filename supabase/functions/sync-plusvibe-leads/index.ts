@@ -221,14 +221,14 @@ serve(async (req) => {
             if (lead.email) byEmail.set(lead.email.toLowerCase(), contactId)
           }
 
-          // 3. Create/Update contact_campaigns link
+          // 3. Create/Update leads interaction record
           const { error: linkError } = await supabase
-            .from('contact_campaigns')
+            .from('leads')
             .upsert({
               contact_id: contactId,
               campaign_id: campaignInfo.id,
               client_id: campaignInfo.client_id,
-              campaign_status: mapCampaignStatus(lead.status, lead.label),
+              status: mapCampaignStatus(lead.status, lead.label),
               plusvibe_lead_id: leadPvId,
               first_sent_at: lead.sent_at || new Date().toISOString(),
               first_reply_at: lead.first_reply_at || lead.replied_at,

@@ -179,9 +179,9 @@ async function handleCreated(
 
   // Update PlusVibe — source_id is de plusvibe_lead_id, last_campaign_id geeft de campaign context
   if (contact?.source_id && contact?.email) {
-    // Haal plusvibe campaign_id op via contact_campaigns
+    // Haal plusvibe campaign_id op via leads
     const { data: cc } = await supabase
-      .from('contact_campaigns')
+      .from('leads')
       .select('plusvibe_lead_id')
       .eq('contact_id', contact.id)
       .not('plusvibe_lead_id', 'is', null)
@@ -472,16 +472,16 @@ async function updatePlusVibeByDomain(supabase: any, email: string) {
   try {
     const domain = email.split('@')[1]
     if (!domain) return
-    // Zoek contacts met zelfde domein via contact_campaigns (plusvibe campaign info)
+    // Zoek contacts met zelfde domein via leads (plusvibe campaign info)
     const { data: domainContacts } = await supabase
       .from('contacts')
-      .select('email, contact_campaigns(plusvibe_lead_id, campaign:campaigns(plusvibe_id))')
+      .select('email, leads(plusvibe_lead_id, campaign:campaigns(plusvibe_id))')
       .like('email', `%@${domain}`)
       .not('email', 'is', null)
       .limit(50)
     for (const dc of (domainContacts || [])) {
       if (dc.email === email) continue
-      const cc = (dc as any).contact_campaigns?.[0]
+      const cc = (dc as any).leads?.[0]
       if (!cc?.plusvibe_lead_id || !cc?.campaign?.plusvibe_id) continue
       fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
         method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },

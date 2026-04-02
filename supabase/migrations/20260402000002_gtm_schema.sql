@@ -27,7 +27,10 @@ ALTER TABLE clients
 COMMENT ON COLUMN clients.gtm_synthesis IS 'AI-synthesized GTM strategy per client. Schema: { solutions[], icp_segments[], personas[], entry_offers[], recommended_cells[], gate_status, google_doc_url }';
 
 -- ── 3. campaign_cells ──
-CREATE TABLE IF NOT EXISTS campaign_cells (
+-- Drop old FK-based design (0 rows, replaced by JSONB brief+runs approach)
+DROP TABLE IF EXISTS campaign_cells CASCADE;
+
+CREATE TABLE campaign_cells (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id             UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   campaign_id           UUID REFERENCES campaigns(id) ON DELETE SET NULL,
@@ -129,6 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_campaign_cells_priority
   ON campaign_cells(priority_score DESC);
 
 -- Updated_at trigger
+DROP TRIGGER IF EXISTS campaign_cells_updated_at ON campaign_cells;
 CREATE TRIGGER campaign_cells_updated_at
   BEFORE UPDATE ON campaign_cells
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
