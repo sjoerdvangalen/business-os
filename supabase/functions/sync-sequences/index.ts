@@ -103,6 +103,10 @@ serve(async (req) => {
             variation: variationLabel,
             wait_time_days: waitTime,
             is_active: true,
+            // Stats — PlusVibe returns these on the variation object
+            sent: v.sent_count ?? v.sent ?? v.emails_sent ?? 0,
+            replies: v.replied_count ?? v.replies ?? v.reply_count ?? 0,
+            positive_replies: v.positive_reply_count ?? v.positive_replies ?? v.interested_count ?? 0,
           }
 
           try {
