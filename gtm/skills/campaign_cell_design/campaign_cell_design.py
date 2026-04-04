@@ -384,7 +384,7 @@ def generate_aleads_config(
 
     Args:
         cell_brief: The cell brief dict (may have partial aleads_config already)
-        icp_segment: The ICP segment definition (from clients.gtm_synthesis.icp_segments)
+        icp_segment: The ICP segment definition (from gtm_strategies.icp_segments JSONB)
         volume: Target list size (default 1000 per H1 phase)
 
     Returns:

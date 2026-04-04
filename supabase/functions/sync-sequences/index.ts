@@ -51,12 +51,13 @@ serve(async (req) => {
     // 2. Map PlusVibe campaign IDs to our campaign UUIDs
     const { data: ourCampaigns } = await supabase
       .from('campaigns')
-      .select('id, plusvibe_id')
-      .not('plusvibe_id', 'is', null)
+      .select('id, provider_campaign_id')
+      .eq('provider', 'plusvibe')
+      .not('provider_campaign_id', 'is', null)
 
     const pvToUuid = new Map<string, string>()
     for (const c of ourCampaigns || []) {
-      if (c.plusvibe_id) pvToUuid.set(c.plusvibe_id, c.id)
+      if (c.provider_campaign_id) pvToUuid.set(c.provider_campaign_id, c.id)
     }
 
     // 3. Load existing sequences for dedup

@@ -14,7 +14,7 @@ const corsHeaders = {
  *   → Find/create campaign
  *   → Find/create contact (ALWAYS — for all event types)
  *   → Store email in email_threads
- *   → Call reply-classifier → lead-router (for replies)
+ *   → Call reply-classifier (for replies)
  *
  * Events: ALL_EMAIL_REPLIES, EMAIL_SENT, BOUNCED_EMAIL, LEAD_MARKED_AS_*
  *
@@ -231,7 +231,8 @@ serve(async (req) => {
         const { data: inbox } = await supabase
           .from('email_inboxes')
           .select('id')
-          .eq('plusvibe_id', plusvibeEmailAccountId)
+          .eq('provider', 'plusvibe')
+          .eq('provider_inbox_id', plusvibeEmailAccountId)
           .single()
         emailInboxId = inbox?.id || null
       } catch { /* not found */ }
@@ -252,7 +253,7 @@ serve(async (req) => {
       } catch { /* not found */ }
     }
 
-    // ── 2. Find Campaign (by plusvibe_id or name) ──
+    // ── 2. Find Campaign (by provider_campaign_id or name) ──
     let campaign: { id: string; client_id: string; name: string } | null = null
 
     if (plusvibeCampId) {
@@ -260,7 +261,8 @@ serve(async (req) => {
         const { data } = await supabase
           .from('campaigns')
           .select('id, client_id, name')
-          .eq('plusvibe_id', plusvibeCampId)
+          .eq('provider', 'plusvibe')
+          .eq('provider_campaign_id', plusvibeCampId)
           .single()
         campaign = data
       } catch { /* not found */ }

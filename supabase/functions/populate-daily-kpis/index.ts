@@ -57,13 +57,13 @@ serve(async (req) => {
     const statsResult = await pvResponse.json()
     const campaignStats = statsResult.campaigns || statsResult.data || statsResult || []
 
-    // Pre-load campaign mapping (plusvibe_id → our id + client_id)
+    // Pre-load campaign mapping (provider_campaign_id → our id + client_id)
     const { data: campaigns } = await supabase
       .from('campaigns')
-      .select('id, client_id, plusvibe_id')
+      .select('id, client_id, provider_campaign_id')
     const campaignMap = new Map<string, { id: string; client_id: string }>()
     for (const c of campaigns || []) {
-      if (c.plusvibe_id) campaignMap.set(c.plusvibe_id, { id: c.id, client_id: c.client_id })
+      if (c.provider_campaign_id) campaignMap.set(c.provider_campaign_id, { id: c.id, client_id: c.client_id })
     }
 
     let created = 0, updated = 0, failed = 0

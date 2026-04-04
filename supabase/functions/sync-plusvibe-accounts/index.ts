@@ -91,13 +91,13 @@ serve(async (req) => {
       const domainId = domainMap.get(emailDomain) || null
 
       return {
-        plusvibe_id: acct.id,
+        provider: 'plusvibe',
+        provider_inbox_id: acct.id,
         client_id: clientId,
         domain_id: domainId,
         email: acct.email,
         first_name: payload.name?.first_name || null,
         last_name: payload.name?.last_name || null,
-        provider: acct.provider || null,
         status: acct.status || null,
         daily_limit: payload.daily_limit || null,
         interval_limit_min: payload.sending_gap || null,
@@ -120,7 +120,7 @@ serve(async (req) => {
       try {
         const { error } = await supabase
           .from('email_inboxes')
-          .upsert(batch, { onConflict: 'plusvibe_id' })
+          .upsert(batch, { onConflict: 'provider,provider_inbox_id' })
 
         if (error) {
           console.error(`Batch ${i}-${i + batch.length} failed:`, error.message)

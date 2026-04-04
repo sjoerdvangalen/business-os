@@ -32,10 +32,10 @@ serve(async (req) => {
     // Pre-load campaigns for campaign_id + client_id lookup
     const { data: campaigns } = await supabase
       .from('campaigns')
-      .select('id, client_id, plusvibe_id')
+      .select('id, client_id, provider_campaign_id')
     const campaignMap = new Map<string, { id: string; client_id: string }>()
     for (const c of campaigns || []) {
-      if (c.plusvibe_id) campaignMap.set(c.plusvibe_id, { id: c.id, client_id: c.client_id })
+      if (c.provider_campaign_id) campaignMap.set(c.provider_campaign_id, { id: c.id, client_id: c.client_id })
     }
 
     // Pre-load existing contacts by plusvibe_lead_id for dedup

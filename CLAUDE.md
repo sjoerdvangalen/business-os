@@ -1,5 +1,18 @@
 # Business OS — CLAUDE.md
 
+## Document Authority
+
+```
+Document                         Leidend voor
+═════════════════════════════════╪══════════════════════════════════════════
+CLAUDE.md                        Current repo truth / operating context
+ROADMAP.md                       Build order + backlog + future phases
+docs/outbound-playbook.md        Outbound source of truth (targeting/copy/offers)
+docs/cloud-deploy-protocol.md    Deployment procedure (DB + edge functions)
+docs/campaign-setup-playbook.md  Handmatige campaign operations (deels legacy)
+docs/API_KEYS.md                 Key locaties en deploy commands
+```
+
 ## Owner
 Sjoerd van Galen — founder of **VGG Acquisition** (B2B lead generation agency).
 Also co-runs **GTM Scaling** with partner Niels (same model, shared clients).
@@ -19,12 +32,11 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ## Tech Stack
 - **Database**: Supabase (project: `gjhbbyodrbuabfzafzry`, region: West EU Ireland)
 - **Edge Functions**: Deno + TypeScript (Supabase Edge Functions)
-- **Email Platform**: PlusVibe (workspace: `68f8e5d7e13f67d591c4f0a8`)
+- **Email Platform**: PlusVibe (workspace: `68f8e5d7e13f67d591c4f0a8`) + EmailBison (backup)
 - **Calendar**: Cal.com + GoHighLevel (multi-provider via webhook-meeting)
 - **Automation**: Supabase pg_cron + Edge Functions (replacing n8n)
 - **Communication**: Slack (per-client channels + #vgg-alerts), Google Workspace
-- **Airtable**: Legacy/archive only — GTM Scaling base `appaGhM19wYDA9PqB`
-- **n8n**: Still running as backup — DO NOT modify/deactivate n8n workflows until Supabase system is 100% stable
+- **GTM Orchestrator**: Python (gtm/) — strategy synthesis, cell design, lead sourcing
 - **Code**: GitHub
 - **Runtime**: Deno at `/Users/sjoerdvangalen/.deno/bin/deno`
 
@@ -32,178 +44,174 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ```
 ~/business-os/
 ├── CLAUDE.md                          # This file
-├── docs/                              # Reference documentation
+├── ROADMAP.md                         # Build order + backlog + future phases
+├── docs/
 │   ├── outbound-playbook.md           # Core playbook — ALL outbound decisions start here
-│   ├── DATA_ARCHITECTURE.md           # Account-centric data model (reference, not yet implemented)
+│   ├── cloud-deploy-protocol.md       # Deployment procedure (DB + edge functions)
+│   ├── campaign-setup-playbook.md     # Campaign operations (deels legacy)
 │   └── API_KEYS.md                    # API key locations and deploy commands
-├── research/                          # Client research .md files (1 per client)
-│   └── FRTC.md, BETS.md, etc.
+├── research/                          # Client research (currently SECX only)
+│   └── SECX-*.md (8 files)           # SentioCX campaign matrix, prompts, test comparisons
 ├── dashboard/                         # Next.js dashboard (Vercel)
 │   ├── app/(dashboard)/page.tsx       # Command Center
-│   ├── app/login/page.tsx             # Auth login page
 │   ├── app/components/                # Shared UI components
-│   ├── lib/supabase/                  # Supabase client helpers
-│   └── middleware.ts                  # Auth middleware
+│   └── lib/supabase/                  # Supabase client helpers
+├── gtm/                               # GTM automation (Python)
+│   ├── orchestrator.py                # Main orchestrator (Phase A: strategy, Phase B: data pipeline)
+│   ├── lib/                           # Supabase client, A-Leads, enrichment, Google, Slack
+│   └── skills/                        # AI skills: solution_mapping, offer_dev, icp_persona, cell_design
+├── scripts/
+│   ├── bulk-import-csv.ts             # Bulk CSV import (Clay, LinkedIn, manual, GMaps)
+│   └── manual-sync-leads.js           # Manual PlusVibe lead sync
 ├── supabase/
 │   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push`)
-│   └── functions/                     # Edge functions (deployed with `npx supabase functions deploy`)
-│       ├── # Core Sync (Active)
-│       ├── sync-plusvibe-campaigns/    # Every 15 min via pg_cron
-│       ├── sync-plusvibe-accounts/     # Every 15 min via pg_cron
-│       ├── sync-plusvibe-warmup/       # Daily at 00:00 UTC via pg_cron
-│       ├── sync-plusvibe-leads/        # Every 15 min — lead catch-up sync
-│       ├── sync-domains/              # Daily — domain health from email accounts
-│       ├── sync-sequences/            # Every 15 min — email sequences from PlusVibe
-│       ├── # Webhooks (Active)
-│       ├── webhook-receiver/          # Real-time PlusVibe webhook events
-│       ├── lead-router/               # Routes leads based on PlusVibe labels
-│       ├── webhook-meeting/           # Multi-provider meeting webhook (Cal.com, Calendly, GHL)
-│       ├── webhook-slack-interaction/ # Slack button/modal handler for meeting reviews
-│       ├── # Processing (Active)
-│       ├── meeting-review/            # Cron */5 min — sends Slack Block Kit review after meetings
-│       ├── populate-daily-kpis/       # Daily KPI aggregation from PlusVibe analytics
-│       ├── campaign-monitor/          # Health checks every 15 min
-│       ├── domain-monitor/            # Deliverability check daily at 06:00 UTC
-│       ├── # Lead Generation (Active)
-│       ├── email-waterfall/           # TryKitt email verification (patterns)
-│       ├── ai-enrich-contact/         # AI enrichment for contacts
-│       ├── process-gmaps-batch/       # Process Google Maps scraper batches
-│       ├── find-contacts/             # A-Leads contact finder for companies
-│       └── # Phase 2 Scaffolding (GTM Framework — reserved for future)
-│           gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments
-│           gtm-crud-personas, gtm-crud-cells, gtm-crud-runs, gtm-crud-variants
-│           analyze-attribution, analyze-icp, detect-anomalies
-└── sync/
-    └── import-airtable.ts             # One-time import script (already run)
+│   └── functions/                     # Edge functions (see list below)
+│       └── _archive/                  # 16 archived functions (not deployed)
+└── _archive/docs/                     # Archived reference docs
 ```
+
+## Edge Functions (24 active)
+
+### Core Sync
+- `sync-plusvibe-campaigns` — Every 15 min via pg_cron
+- `sync-plusvibe-accounts` — Every 15 min via pg_cron
+- `sync-plusvibe-warmup` — Daily at 00:00 UTC
+- `sync-plusvibe-leads` — Every 15 min — lead catch-up sync
+- `sync-domains` — Daily — domain health from email accounts
+- `sync-sequences` — Every 15 min — email sequences from PlusVibe
+- `sync-emailbison-accounts` — EmailBison email accounts sync
+- `sync-emailbison-campaigns` — EmailBison campaigns sync
+- `sync-emailbison-sequences` — EmailBison sequence steps sync
+
+### Webhooks
+- `webhook-receiver` — Real-time PlusVibe webhook events
+- `webhook-emailbison` — Real-time EmailBison events (replies, bounces, opens)
+- `webhook-meeting` — Multi-provider meeting webhook (Cal.com, Calendly, GHL)
+- `webhook-slack-interaction` — Slack button/modal handler for meeting reviews
+
+### Processing
+- `meeting-review` — Cron */5 min — sends Slack Block Kit review after meetings
+- `populate-daily-kpis` — Daily KPI aggregation
+- `campaign-monitor` — Health checks every 15 min
+- `domain-monitor` — Deliverability check daily at 06:00 UTC
+- `daily-digest` — Daily summary of all client activity (7:00 CET)
+- `verify-deployment` — Infrastructure verification
+
+### Lead Generation
+- `email-waterfall` — TryKitt email verification (patterns)
+- `ai-enrich-contact` — AI enrichment for contacts
+- `process-gmaps-batch` — Process Google Maps scraper batches
+- `find-contacts` — A-Leads contact finder for companies
+- `validate-leads` — Enrow email validation
+
+### Archived (16 in `_archive/`, not deployed)
+gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments, gtm-crud-personas, gtm-crud-cells, gtm-crud-runs, gtm-crud-variants, analyze-attribution, analyze-icp, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
 
 ## Supabase Schema
 
-33 tables total. Marked: **[active]** = has data, **[scaffolding]** = built but empty/unused.
+17 tables. Marked: **[active]** = has data, **[new]** = recently created/recreated.
 
 ### Core — Sync & Operations
 - `clients` **[active — 19 rows]** — Hub table, all data connects here via client_id
-  - `onboarding_form` JSONB, `research` JSONB, `strategy` JSONB
-  - `onboarding_status` — not_started → form_submitted → researched → strategy_done → copy_done → internal_review → client_review → approved → deployed
-  - `report_frequency` — weekly/biweekly/monthly
+  - `onboarding_form` JSONB, `research` JSONB
+  - `phase` — client_phase enum (0_onboarding → ...)
   - `slack_channel_id` — Slack channel for this client's alerts/reviews
-- `campaigns` **[active — 49 rows]** — Synced from PlusVibe
+  - **Legacy mirror fields** (not canonical, do not use in new code): `strategy` JSONB, `icp_segments` JSONB, `campaign_cells` JSONB, `phase_log` JSONB, `gate_status`, `gate_score`, `gate_feedback`
+- `campaigns` **[active — 49 rows]** — Synced from PlusVibe + EmailBison
+  - `provider` — plusvibe/emailbison/manual
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
-  - `monitoring_notes` JSONB — recent health check results
-- `email_inboxes` **[active — 4,391 rows]** — Synced from PlusVibe
-- `domains` **[active — 1 row]** — Email sending domains
-  - `spf_status`, `dkim_status`, `dmarc_status` — set by domain-monitor
-- `companies` **[active — 17,524 rows]** — Account foundation. Canonical company table. FK target for contacts.
-  - New columns added: website, city, state, country, industry, employee_count, employee_range, source, enrichment_data, tags, last_enriched_at
-- `contacts` **[active — 27,637 rows]** — Unified person pool, reusable across clients. `company_id FK → companies`.
-  - `email_verified`, `email_verified_at`, `email_waterfall_status` — replaces email_cache
-  - `contact_status` — new/targeted/responded/meeting_booked/not_interested
-- `contact_campaigns` **[active — 24,259 rows]** — Linking table: contact × campaign × client. The "lead" interaction record.
-  - `plusvibe_lead_id` — external PlusVibe reference
-  - `campaign_status` — added/sent/replied/meeting_booked/completed
-- `leads` **[active — 27,857 rows]** — Legacy PlusVibe sync table. Being phased out in favour of contacts + contact_campaigns.
-- `email_threads` **[active — 46,760 rows]** — Individual email records (direction, body_text, from_email, to_email, thread_id). Real-time via webhook-receiver.
+- `email_inboxes` **[active — 4,391 rows]** — Synced from PlusVibe + EmailBison
+- `domains` **[active]** — Email sending domains (SPF/DKIM/DMARC status)
+- `businesses` **[active — 17k+ rows]** — Company/prospect table
+- `contacts` **[active — 27k+ rows]** — Unified person pool, reusable across clients. `company_id FK → businesses`.
+- `leads` **[active — 24k+ rows]** — Linking table: contact × campaign × client. The interaction record.
+- `email_threads` **[active — 46k+ rows]** — Individual email records. Real-time via webhook-receiver.
 - `email_sequences` **[active]** — Email steps within campaigns (synced from PlusVibe)
 - `sync_log` **[active]** — Tracks every sync + agent operation
 
 ### Meeting & CRM
-- `client_integrations` **[active]** — Per-client calendar/webhook integrations
-  - `integration_type` — calcom/calendly/gohighlevel
-  - `webhook_token` — unique URL token per integration
-  - `provider_config` JSONB — provider-specific settings
-- `meetings` **[active — 1 row]** — Calendar meetings (real-time via webhook-meeting)
-  - `booking_status` — booked/rescheduled/cancelled/completed/no_show/qualified/unqualified
-  - `review_scheduled_at` — when to send Slack review (start_time + 30 min)
-  - `review_slack_ts`, `reviewed_at`, `reviewed_by`, `review_status`, `review_notes`
-  - `recording_url` — from Unqualified modal
-- `opportunities` **[active — 1 row]** — CRM pipeline, auto-created on meeting booking
-  - `status` mirrors `meetings.booking_status` (1:1)
-  - `meeting_id`, `campaign_id`, `lead_id`, `client_id`
+- `meetings` **[active]** — Calendar meetings (real-time via webhook-meeting)
+- `opportunities` **[active]** — CRM pipeline, auto-created on meeting booking
 
 ### Other
-- `scraper_runs` **[active]** — Google Maps scraper job tracking
-- `user_profiles` **[active]** — Dashboard user profiles
+- `daily_kpis` **[active]** — Daily metrics per client
+- `okrs` **[active]** — OKR tracking per client
+- `agent_memory` **[active]** — AI agent state persistence
 
-### GTM Framework
-- `campaign_cells` **[active — 0 rows, new schema]** — Atomic GTM unit: Solution × ICP × Persona × Offer.
-  - `brief` JSONB — offer, hook_themes, aleads_config, pain_mapping
-  - `runs` JSONB array — H1/F1/CTA1/SCALE test phases + variants (replaces campaign_runs + campaign_variants)
-  - `campaign_id FK → campaigns` — nullable until PlusVibe campaign is linked
-- `clients.gtm_synthesis` JSONB — AI-synthesized strategy per client (solutions, icp_segments, personas, entry_offers)
+### Canonical GTM Data Model
 
-### Pending Drop (migration written, not yet pushed)
-- `gtm_strategies`, `icp_segments`, `campaign_plans`, `campaign_runs`, `campaign_variants` — replaced by campaign_cells + clients.gtm_synthesis
-- `buyer_personas`, `entry_offers`, `solutions`, `proof_assets` — replaced by clients.gtm_synthesis JSONB
-- `businesses` — replaced by `companies` (canonical)
-- `email_cache` — replaced by contacts.email_verified + email_verified_at
-- `agent_memory` — all stale data (anomaly baselines + slack_pending)
-- `webhook_logs` — debug-only, 46k stale rows
-```
-Webhook (Cal.com/Calendly/GHL)
-  → webhook-meeting (token-based routing per client)
-    → BOOKED: create meeting + opportunity + PlusVibe update + Slack
-    → CANCELLED: update meeting + opportunity status, clear review timer
-    → RESCHEDULED: update times + opportunity status, reset review timer
-  → 30 min after meeting: meeting-review cron sends Block Kit review to client Slack channel
-    → Client clicks: Qualified / Unqualified / No-Show / Rescheduled
-    → No-Show requires proof, VGG has final say
-    → Opportunity status mirrors meeting status 1:1
-```
+**Two canonical tables — single source of truth for GTM:**
+
+- `gtm_strategies` **[new — recreated 2026-04-04]** — Strategy container (per client, versioned)
+  - JSONB: `solutions`, `pains`, `icp_segments`, `buyer_personas`, `entry_offers`, `proof_assets`, `messaging_direction`, `research_context`, `onboarding_context`
+  - Status: draft → synthesized → gate_review → gate_approved → client_sent → client_iteration → client_approved
+  - Contains strategy-level decisions. Does NOT contain hooks, subject lines, sample emails, CTA variants.
+
+- `campaign_cells` **[new — extended 2026-04-04]** — Execution/test unit (per strategy, per combination)
+  - Keys: `solution_key`, `icp_key`, `persona_key`, `offer_key` → linked to strategy via `strategy_id FK`
+  - `snapshot` JSONB (immutable after creation) — frozen copy of strategy data at cell creation
+  - `brief` JSONB, `runs` JSONB[] — test phases + variants
+  - Status: draft → pilot_copy → H1_testing → H1_winner → F1_testing → F1_winner → CTA1_testing → soft_launch → scaling → killed
+  - `runs[].variants[]` contains concrete hooks, subject lines, sample emails, CTA variants — not the cell definition itself
+
+**No active standalone GTM tables** for solutions, icp_segments, buyer_personas, entry_offers, campaign_runs, campaign_variants. These were dropped in migration 20260402000004 and replaced by JSONB in gtm_strategies + campaign_cells.
+
+**`clients` is NOT a canonical GTM data container.** GTM-related JSONB fields on clients (`strategy`, `icp_segments`, `campaign_cells`, `phase_log`) are legacy mirror fields — not canonical, not to be used by new code.
+
+### Messaging Approval Model
+
+- **Strategy approval** = hard gate (client must approve before any outreach)
+- **Messaging direction approval** = required before going live
+- **Copy review** = bounded (client sees representative examples, not all live test variants)
+- **Test logic** (H1/F1/CTA1 rotation) = managed internally, not client-facing
 
 ### Agent Architecture
-- **Reply pipeline**: PlusVibe webhooks → `webhook-receiver` → stores in email_threads + leads → `lead-router` → PlusVibe API + Slack
+- **Reply pipeline**: PlusVibe/EmailBison webhooks → `webhook-receiver`/`webhook-emailbison` → stores in email_threads + leads → PlusVibe API + Slack
 - **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + PlusVibe API + Slack
 - **Monitoring**: `campaign-monitor` (*/15 min), `domain-monitor` (daily)
 - **Syncs**: campaigns, inboxes, leads (*/15 min), warmup + domains (daily), sequences (*/15 min)
 
-### Lead Generation Pipeline (NEW — ZONDER Clay)
+### Lead Generation Pipeline
 ```
-Google Maps Scraper → process-gmaps-batch → companies table
-  → find-contacts (A-Leads API) → leads table
+Google Maps Scraper → process-gmaps-batch → businesses table
+  → find-contacts (A-Leads API) → contacts table
     → email-waterfall (TryKitt patterns) → verified email
-      → ai-enrich-contact (Kimi AI) → personalization data
-        → PlusVibe API → campaigns
+      → validate-leads (Enrow) → email_validation_status
+        → ai-enrich-contact (Kimi AI) → personalization data
+          → PlusVibe API → campaigns
 ```
 
 **APIs Used:**
 - **A-Leads** — Contact finder (better than Apollo)
 - **TryKitt** — Email verification with pattern matching
+- **Enrow** — Email finding and secondary verification
 - **Kimi (via CCR)** — AI enrichment
 
 **Cost per 1000 leads:** ~€3.50 (vs Clay €50+)
 
-**Edge Functions:**
-- `process-gmaps-batch` — Receives batches from GMaps scraper
-- `find-contacts` — A-Leads API integration
-- `email-waterfall` — TryKitt verification (first@, f.last@ patterns)
-- `ai-enrich-contact` — AI research for personalization
-
 ## Clients (active)
-| Code | Name | What they do | Calendar |
-|------|------|-------------|----------|
-| FRTC | FRT Capital | Venture capital / investment fund | — |
-| BETS | Better Socials | Social media marketing | Cal.com |
-| AXIS | AXIND Software BV | Software development | — |
-| SECX | SentioCX | AI-powered customer experience platform | — |
-| REMR | Remote Rumble | Sales acquisition agency | — |
-| PESC | Pescheck | International background checks platform | — |
-| DOMS | Dovideq Medical Systems | Medical devices for minimally invasive surgery | Cal.com |
-| DIGT | Digital Traffic | Digital marketing agency | GHL |
-| PROL | Prolink | B2B services | GHL |
-| OGNO | Ogno | Tech company | — |
-| NEBE | NBE B.V. | B2B services | GHL |
-| GTMS | GTM Scaling | Own company (with Niels) | Cal.com |
-| QULF | Quality Lead Formula | Lead generation | — |
-| LDEM | LDesignMedia | Design/media | — |
+
+```
+Code  Name                    What they do                              Calendar
+══════╪═══════════════════════╪═════════════════════════════════════════╪═════════════
+FRTC  FRT Capital             Venture capital / investment fund         —
+BETS  Better Socials          Social media marketing                   Cal.com
+AXIS  AXIND Software BV       Software development                     —
+SECX  SentioCX                AI-powered customer experience platform   —
+REMR  Remote Rumble           Sales acquisition agency                  —
+PESC  Pescheck                International background checks           —
+DOMS  Dovideq Medical Systems Medical devices (minimally invasive)      Cal.com
+DIGT  Digital Traffic         Digital marketing agency                   GHL
+PROL  Prolink                 B2B services                              GHL
+OGNO  Ogno                    Tech company                              —
+NEBE  NBE B.V.                B2B services                              GHL
+GTMS  GTM Scaling             Own company (with Niels)                   Cal.com
+QULF  Quality Lead Formula    Lead generation                           —
+LDEM  LDesignMedia            Design/media                              —
+```
 
 ### Paused/Archived
-| Code | Name | Status |
-|------|------|--------|
-| INPE | Inplenion ERP | Paused — Oracle NetSuite consulting |
-| NELA | Next Level Amazon | Paused — Amazon seller consulting |
-| SOVA | SOV Agency | Archived — Performance marketing |
-| SOCT | Social Trends | Archived |
-| POUL | PoultryPlan | Archived |
+INPE (Inplenion ERP), NELA (Next Level Amazon), SOVA (SOV Agency), SOCT (Social Trends), POUL (PoultryPlan)
 
 ## Security Rules (STRICT — never bypass)
 
@@ -218,7 +226,7 @@ Google Maps Scraper → process-gmaps-batch → companies table
 - **Client matching**: Extract client_code from first segment of campaign name, uppercase
 - **IDs**: All tables use UUID primary keys, PlusVibe records have `plusvibe_id` TEXT field
 - **Timestamps**: All tables have `created_at` and `updated_at` (auto-updated via trigger)
-- **Sync pattern**: Edge function → PlusVibe API → upsert into Supabase → log to sync_log
+- **Sync pattern**: Edge function → PlusVibe/EmailBison API → upsert into Supabase → log to sync_log
 - **Meeting webhook URL**: `https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-meeting?token=<TOKEN>`
 
 ## Git & Commits
@@ -250,35 +258,10 @@ This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird)
 **Rule: Never generate outbound advice, copy, or strategy from generic knowledge. Always ground it in the playbook.**
 
 ## Client Research
-Research files for each client are stored in `research/CLIENT_CODE.md`.
-**When asked about a client, ALWAYS read `research/CLIENT_CODE.md` first for full context.**
+Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioCX (SECX) has research files (8 files: campaigns matrix, prompts, test comparisons).
+**When asked about a client with research files, ALWAYS read them first for full context.**
 
-### Onboarding Pipeline
-Client onboarding status is tracked in `clients.onboarding_status`:
-`not_started` → `form_submitted` → `researched` → `strategy_done` → `copy_done` → `internal_review` → `client_review` → `approved` → `deployed`
-
-### Custom Commands
-- `/onboard CLIENT_CODE` — Full pipeline: form → research → strategy → copy
-- `/research CLIENT_CODE` — Deep company research (web search + onboarding form)
-- `/strategy CLIENT_CODE` — Generate ICPs + offer variants from research
-- `/copy CLIENT_CODE` — Generate cold email copy from approved offers
-- `/review CLIENT_CODE` — Show pipeline status and approve items
-
-## Known Issues & Decisions
-- ~~Service role key is hardcoded in pg_cron migration~~ — FIXED: Uses vault/secrets
-- ~~RLS enabled on all 14 tables~~ — FIXED: RLS enabled + policies added for all tables
-- ~~`aggregate-kpis` and `webhook-calendar`~~ — REMOVED: Deprecated functions archived
-- ~~All views (v_client_dashboard, etc.)~~ — DROPPED: All 9 views removed per security audit
+## Known Issues
 - n8n workflows still running as backup — DO NOT deactivate until Supabase system is fully verified
 - Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)
-- Slack review flow DONE — meeting-review cron + webhook-slack-interaction (Qualified direct, Unqualified/No-Show/Rescheduled via modals)
 - `SLACK_TEST_CHANNEL` env var still set to `C0A50BSF8E8` (GTM Scaling) — unset when going live per client
-- PlusVibe API key moved to Supabase secrets (`PLUSVIBE_API_KEY`)
-
-## Vision
-Fully automated Business OS where AI agents handle:
-- Campaign monitoring and optimization
-- Client reporting (daily digest + per-client weekly reports)
-- Meeting lifecycle (booking → review → qualification)
-- Alert escalation (bounce rates, disconnected accounts, low warmup)
-- But with human-in-the-loop for key decisions (pausing campaigns, client communication, meeting disputes)

@@ -1,5 +1,5 @@
 """
-Supabase client for GTM automation — companies, contacts, campaign cells, GTM synthesis.
+Supabase client for GTM automation — businesses, contacts, campaign cells, gtm_strategies.
 """
 import os
 from datetime import datetime, timezone
@@ -22,13 +22,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# --- GTM Synthesis (clients.gtm_synthesis) ---
+# --- GTM Strategy (clients.strategy — legacy mirror; canonical: gtm_strategies table) ---
 
 def update_gtm_synthesis(client_id: str, synthesis: dict) -> dict:
     result = (
         get_client()
         .table("clients")
-        .update({"gtm_synthesis": synthesis, "updated_at": _now()})
+        .update({"strategy": synthesis, "updated_at": _now()})
         .eq("id", client_id)
         .execute()
     )
@@ -39,19 +39,19 @@ def get_gtm_synthesis(client_id: str) -> dict:
     result = (
         get_client()
         .table("clients")
-        .select("gtm_synthesis")
+        .select("strategy")
         .eq("id", client_id)
         .single()
         .execute()
     )
-    return result.data.get("gtm_synthesis") or {}
+    return result.data.get("strategy") or {}
 
 
 def get_client_by_code(client_code: str) -> dict | None:
     result = (
         get_client()
         .table("clients")
-        .select("id, name, client_code, gtm_synthesis")
+        .select("id, name, client_code, strategy")
         .eq("client_code", client_code)
         .maybe_single()
         .execute()
@@ -158,7 +158,7 @@ def upsert_company(domain: str, name: str, enrichment_data: dict | None = None) 
 
     result = (
         get_client()
-        .table("companies")
+        .table("businesses")
         .upsert(payload, on_conflict="domain")
         .execute()
     )
@@ -168,7 +168,7 @@ def upsert_company(domain: str, name: str, enrichment_data: dict | None = None) 
 def get_company_by_domain(domain: str) -> dict | None:
     result = (
         get_client()
-        .table("companies")
+        .table("businesses")
         .select("id, name, domain")
         .eq("domain", domain)
         .maybe_single()
@@ -229,7 +229,7 @@ def get_contact_by_linkedin(linkedin_url: str) -> dict | None:
     return result.data
 
 
-# --- Contact Campaigns (linking table) ---
+# --- Leads (contact × campaign linking table) ---
 
 def link_contact_to_campaign(
     contact_id: str,
@@ -248,7 +248,7 @@ def link_contact_to_campaign(
 
     result = (
         get_client()
-        .table("contact_campaigns")
+        .table("leads")
         .upsert(payload, on_conflict="contact_id,campaign_id")
         .execute()
     )

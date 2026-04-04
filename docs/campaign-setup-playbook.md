@@ -1,5 +1,9 @@
 # Campaign Setup Playbook — Operationeel Stappenplan
 
+> **STATUS: DEELS VEROUDERD** — Stappen 1-2 refereren gearchiveerde GTM CRUD endpoints.
+> Stappen 3-6 blijven accuraat voor handmatige campaign setup.
+> Wordt later vervangen door `docs/campaign-operation.md` (aligned met huidig model).
+
 > Stap-voor-stap handleiding voor het opzetten van een nieuwe campagne in Business OS. Dit is de operationele uitwerking van de strategische richtlijnen in `outbound-playbook.md`.
 
 ---
@@ -9,7 +13,7 @@
 ```
 Stap 1: GTM Strategy scaffolding      (Supabase GTM Framework)
 Stap 2: Campaign cell design          (Template B v2)
-Stap 3: Lead sourcing                 (GMaps / Apollo / Handmatig)
+Stap 3: Lead sourcing                 (GMaps / A-Leads / Handmatig)
 Stap 4: Email copy & value props      (SentioCX integratie)
 Stap 5: PlusVibe upload & config      (Campaign launch)
 Stap 6: Monitoring & optimalisatie    (Business OS dashboards)
@@ -185,9 +189,8 @@ PERSONALIZATION VELDEN:
 Methode              │ Wanneer gebruiken                    │ Output
 ═════════════════════╪══════════════════════════════════════╪══════════════════════════
 Google Maps Scraper  │ Lokale bedrijven, geo-targeting      │ companies table
-Apollo API           │ Specifieke titels, technische filters │ Handmatige import
 A-Leads API          │ Contact discovery op company list    │ leads table (verified)
-Handmatig            │ Named accounts, kleine lijsten       │ Direct CSV import
+Handmatig/CSV        │ Named accounts, kleine lijsten       │ Direct CSV import
 ```
 
 ### 3.2 Google Maps Scraper → Business OS

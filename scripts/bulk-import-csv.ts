@@ -2,10 +2,10 @@
 /**
  * bulk-import-csv.ts
  *
- * Importeer CSV exports (Apollo, Clay, LinkedIn, handmatig) naar lead_pool.
+ * Importeer CSV exports (Clay, LinkedIn, handmatig, Google Maps) naar lead_pool.
  *
  * Gebruik:
- *   bun run scripts/bulk-import-csv.ts --file leads.csv --source apollo
+ *   bun run scripts/bulk-import-csv.ts --file leads.csv --source manual
  *   bun run scripts/bulk-import-csv.ts --file clay-export.csv --source clay --list "ICP Q1 2026"
  *   bun run scripts/bulk-import-csv.ts --file google-maps.csv --source google_maps --dry-run
  *
@@ -79,7 +79,7 @@ const dryRun   = args.includes('--dry-run')
 
 if (!filePath) {
   console.error('Vereist: --file <pad-naar-csv>')
-  console.error('Optioneel: --source <apollo|clay|linkedin|google_maps|manual>')
+  console.error('Optioneel: --source <clay|linkedin|google_maps|manual>')
   console.error('           --list "<lijstnaam>"')
   console.error('           --dry-run')
   process.exit(1)

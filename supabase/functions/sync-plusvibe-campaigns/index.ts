@@ -49,13 +49,13 @@ serve(async (req) => {
     // Pre-load existing campaigns for matching
     const { data: existingCampaigns } = await supabase
       .from('campaigns')
-      .select('id, name, client_id, plusvibe_id')
+      .select('id, name, client_id, provider_campaign_id')
 
     // Build lookup maps
-    const byPlusvibeId = new Map<string, any>()
+    const byProviderId = new Map<string, any>()
     const byNameClient = new Map<string, any>()
     for (const ec of existingCampaigns || []) {
-      if (ec.plusvibe_id) byPlusvibeId.set(ec.plusvibe_id, ec)
+      if (ec.provider_campaign_id) byProviderId.set(ec.provider_campaign_id, ec)
       if (ec.name && ec.client_id) byNameClient.set(`${ec.name}::${ec.client_id}`, ec)
     }
 
@@ -71,40 +71,28 @@ serve(async (req) => {
       }
 
       const campaignData = {
-        plusvibe_id: camp.id,
+        provider: 'plusvibe',
+        provider_campaign_id: camp.id,
         client_id: clientId,
         name: camp.camp_name,
-        status: camp.status,
-        campaign_type: camp.campaign_type || 'parent',
+        status: camp.status?.toLowerCase(),
         total_leads: camp.lead_count || 0,
         leads_contacted: camp.lead_contacted_count || 0,
         leads_completed: camp.completed_lead_count || 0,
         emails_sent: camp.sent_count || 0,
-        unique_opens: camp.unique_opened_count || 0,
         replies: camp.replied_count || 0,
         positive_replies: camp.positive_reply_count || 0,
-        neutral_replies: camp.neutral_reply_count || 0,
-        negative_replies: camp.negative_reply_count || 0,
         bounces: camp.bounced_count || 0,
-        unsubscribes: camp.unsubscribed_count || 0,
-        open_rate: camp.open_rate || 0,
         reply_rate: camp.replied_rate || 0,
         bounce_rate: camp.sent_count > 0 ? Math.round((camp.bounced_count || 0) / camp.sent_count * 10000) / 100 : 0,
         positive_rate: camp.replied_count > 0 ? Math.round((camp.positive_reply_count || 0) / camp.replied_count * 10000) / 100 : 0,
         daily_limit: camp.daily_limit,
-        send_priority: camp.send_priority,
-        stop_on_reply: camp.stop_on_lead_replied === 1,
-        opportunity_value: camp.opportunity_val || 0,
-        start_date: camp.camp_st_date && camp.camp_st_date.trim() ? camp.camp_st_date : null,
-        end_date: camp.camp_end_date && camp.camp_end_date.trim() ? camp.camp_end_date : null,
-        last_lead_sent: camp.last_lead_sent && camp.last_lead_sent.trim() ? camp.last_lead_sent : null,
-        last_lead_replied: camp.last_lead_replied && camp.last_lead_replied.trim() ? camp.last_lead_replied : null,
-        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }
 
       try {
-        // Strategy: check if campaign exists by plusvibe_id first, then by name+client
-        const existing = byPlusvibeId.get(camp.id) || byNameClient.get(`${camp.camp_name}::${clientId}`)
+        // Strategy: check if campaign exists by provider_campaign_id first, then by name+client
+        const existing = byProviderId.get(camp.id) || byNameClient.get(`${camp.camp_name}::${clientId}`)
 
         if (existing) {
           // Update existing campaign

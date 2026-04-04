@@ -12,7 +12,6 @@ const corsHeaders = {
  * Alert thresholds (from outbound-playbook.md):
  * - Bounce rate: WARNING >3%, CRITICAL >5%
  * - Reply rate: WARNING <1% (after 500 sent), CRITICAL <0.5%
- * - Open rate: WARNING <30%, CRITICAL <20%
  * - Disconnected accounts: WARNING >10%, CRITICAL >25%
  *
  * Actions:
@@ -36,10 +35,10 @@ serve(async (req) => {
     const { data: campaigns, error: campError } = await supabase
       .from('campaigns')
       .select(`
-        id, name, client_id, status, plusvibe_id,
-        emails_sent, replies, bounces, unsubscribes,
-        open_rate, reply_rate, bounce_rate,
-        positive_replies, negative_replies,
+        id, name, client_id, status, provider, provider_campaign_id,
+        emails_sent, replies, bounces,
+        reply_rate, bounce_rate,
+        positive_replies,
         total_leads, leads_contacted,
         health_status, alert_count, monitoring_notes
       `)
@@ -86,22 +85,6 @@ serve(async (req) => {
         issues.push({ level: 'CRITICAL', metric: 'reply_rate', value: replyRate, threshold: 0.5, message: `Reply rate ${replyRate.toFixed(2)}% (<0.5% after 500 sent) — copy needs refresh` })
       } else if (sent >= 500 && replyRate < 1) {
         issues.push({ level: 'WARNING', metric: 'reply_rate', value: replyRate, threshold: 1, message: `Reply rate ${replyRate.toFixed(2)}% (<1% after 500 sent) — consider copy optimization` })
-      }
-
-      // --- Open Rate ---
-      const openRate = camp.open_rate || 0
-      if (sent >= 100 && openRate > 0) {
-        if (openRate < 20) {
-          issues.push({ level: 'CRITICAL', metric: 'open_rate', value: openRate, threshold: 20, message: `Open rate ${openRate.toFixed(1)}% (<20%) — check subject lines and deliverability` })
-        } else if (openRate < 30) {
-          issues.push({ level: 'WARNING', metric: 'open_rate', value: openRate, threshold: 30, message: `Open rate ${openRate.toFixed(1)}% (<30%) — test different subject lines` })
-        }
-      }
-
-      // --- Unsubscribe Rate ---
-      const unsubRate = sent > 0 ? (camp.unsubscribes || 0) / sent * 100 : 0
-      if (sent >= 200 && unsubRate > 2) {
-        issues.push({ level: 'WARNING', metric: 'unsubscribe_rate', value: unsubRate, threshold: 2, message: `Unsubscribe rate ${unsubRate.toFixed(1)}% (>2%) — review targeting or messaging` })
       }
 
       // Determine overall health

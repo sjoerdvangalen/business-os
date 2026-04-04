@@ -38,42 +38,29 @@ serve(async (req: Request) => {
 
     const rawPayload = await req.json()
 
-    // STEP 2: Lookup integration
-    const { data: integration, error: intError } = await supabase
-      .from('client_integrations')
-      .select('id, client_id, integration_type, name, provider_config, is_active, webhook_count')
-      .eq('webhook_token', token)
+    // STEP 2: Lookup client by calendar webhook token
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('id, name, client_code, slack_channel_id, calendar_type, calendar_webhook_count')
+      .eq('calendar_webhook_token', token)
       .single()
 
-    if (intError || !integration) {
-      return new Response(JSON.stringify({ error: 'Invalid token', detail: intError?.message }), {
+    if (clientError || !client) {
+      return new Response(JSON.stringify({ error: 'Invalid token', detail: clientError?.message }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404
       })
     }
 
-    if (!integration.is_active) {
-      return new Response(JSON.stringify({ error: 'Integration disabled' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403
-      })
-    }
-
     // Update stats (fire-and-forget)
-    supabase.from('client_integrations').update({
-      last_webhook_at: new Date().toISOString(),
-      webhook_count: (integration.webhook_count || 0) + 1,
-    }).eq('id', integration.id).then(() => {})
+    supabase.from('clients').update({
+      calendar_last_webhook: new Date().toISOString(),
+      calendar_webhook_count: (client.calendar_webhook_count || 0) + 1,
+    }).eq('id', client.id).then(() => {})
 
-    // STEP 3: Get client
-    const { data: client } = await supabase
-      .from('clients')
-      .select('id, name, client_code, slack_channel_id')
-      .eq('id', integration.client_id)
-      .single()
-
-    const clientCode = client?.client_code || 'UNKNOWN'
+    const clientCode = client.client_code || 'UNKNOWN'
 
     // STEP 4: Normalize payload
-    const normalized = normalizePayload(integration.integration_type, rawPayload)
+    const normalized = normalizePayload(client.calendar_type, rawPayload)
     if (!normalized) {
       return new Response(JSON.stringify({ success: true, message: 'Event not handled' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -98,28 +85,15 @@ serve(async (req: Request) => {
     // STEP 6: Handle event
     let meetingId: string | null = null
     if (normalized.event === 'created') {
-      meetingId = await handleCreated(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleCreated(supabase, client, clientCode, normalized)
     } else if (normalized.event === 'cancelled') {
-      meetingId = await handleCancelled(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleCancelled(supabase, client, clientCode, normalized)
     } else if (normalized.event === 'rescheduled') {
-      meetingId = await handleRescheduled(supabase, integration, client, clientCode, normalized)
+      meetingId = await handleRescheduled(supabase, client, clientCode, normalized)
     }
 
-    // Log
-    supabase.from('agent_memory').insert({
-      agent_id: 'webhook-meeting',
-      memory_type: 'calendar_event',
-      content: `[${integration.name}] ${normalized.event}: ${normalized.attendeeName} (${normalized.attendeeEmail})`,
-      metadata: {
-        integration_id: integration.id, integration_type: integration.integration_type,
-        client_code: clientCode, event: normalized.event,
-        booking_id: normalized.bookingId, attendee_email: normalized.attendeeEmail,
-      },
-    }).then(() => {})
-
-
     return new Response(
-      JSON.stringify({ success: true, event: normalized.event, integration: integration.name, meeting_id: meetingId }),
+      JSON.stringify({ success: true, event: normalized.event, client: clientCode, meeting_id: meetingId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
@@ -127,14 +101,6 @@ serve(async (req: Request) => {
     const msg = (error as Error).message || 'Unknown error'
     console.error('FATAL:', msg)
 
-
-    if (supabase) {
-      supabase.from('agent_memory').insert({
-        agent_id: 'webhook-meeting',
-        memory_type: 'webhook_error',
-        content: `Error: ${msg}`,
-      }).then(() => {})
-    }
 
     return new Response(
       JSON.stringify({ success: false, error: msg }),
@@ -149,7 +115,6 @@ serve(async (req: Request) => {
 
 async function handleCreated(
   supabase: any,
-  integration: any,
   client: any,
   clientCode: string,
   n: NormalizedMeeting
@@ -192,11 +157,12 @@ async function handleCreated(
       // Bepaal plusvibe campaign_id via campaigns tabel
       const { data: camp } = await supabase
         .from('campaigns')
-        .select('plusvibe_id')
+        .select('provider_campaign_id')
         .eq('id', contact.last_campaign_id)
+        .eq('provider', 'plusvibe')
         .maybeSingle()
-      if (camp?.plusvibe_id) {
-        await updatePlusVibeLead(contact.email, camp.plusvibe_id)
+      if (camp?.provider_campaign_id) {
+        await updatePlusVibeLead(contact.email, camp.provider_campaign_id)
       }
     }
   }
@@ -260,17 +226,16 @@ async function handleCreated(
     client_id: client?.id || null,
     lead_id: contact?.id || null,
     opportunity_id: opp?.id || null,
-    integration_id: integration.id,
-    integration_type: integration.integration_type,
-    source: integration.integration_type,
+    integration_type: client.calendar_type,
+    source: client.calendar_type,
     name: n.title || `Meeting with ${n.attendeeName}`,
     start_time: n.startTime, end_time: n.endTime,
     booking_status: 'booked',
     attendee_email: n.attendeeEmail, attendee_name: n.attendeeName,
     location: n.location,
     provider_booking_id: n.bookingId, provider_event_type: n.eventType,
-    calcom_booking_id: integration.integration_type === 'calcom' ? n.bookingId : null,
-    calcom_event_type: integration.integration_type === 'calcom' ? n.eventType : null,
+    calcom_booking_id: client.calendar_type === 'calcom' ? n.bookingId : null,
+    calcom_event_type: client.calendar_type === 'calcom' ? n.eventType : null,
     review_scheduled_at: reviewAt,
     review_status: 'pending',
   }).select('id').single()
@@ -287,7 +252,7 @@ async function handleCreated(
   // Slack
   const oppLabel = opp ? (oppIsNew ? '✅ _New opportunity_' : '🔄 _Existing opportunity updated_') : '⚠️ _Opportunity failed_'
   await sendSlackAlert(supabase, client,
-    `📅 *Meeting Booked!* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `📅 *Meeting Booked!* [${clientCode}]\n*Via:* ${client.calendar_type || 'calendar'}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Company:* ${companyName}\n` +
     `*Type:* ${n.eventType || 'Meeting'}\n*When:* ${fmtDt(n.startTime)}\n` +
     `*Location:* ${n.location || 'TBD'}\n` +
@@ -300,7 +265,6 @@ async function handleCreated(
 
 async function handleCancelled(
   supabase: any,
-  integration: any,
   client: any,
   clientCode: string,
   n: NormalizedMeeting
@@ -329,7 +293,7 @@ async function handleCancelled(
 
 
   await sendSlackAlert(supabase, client,
-    `❌ *Meeting Cancelled* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `❌ *Meeting Cancelled* [${clientCode}]\n*Via:* ${client.calendar_type || 'calendar'}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*Was:* ${fmtDt(n.startTime)}\n` +
     `*Reason:* ${n.cancellationReason || 'No reason given'}`
   )
@@ -339,7 +303,6 @@ async function handleCancelled(
 
 async function handleRescheduled(
   supabase: any,
-  integration: any,
   client: any,
   clientCode: string,
   n: NormalizedMeeting
@@ -374,7 +337,7 @@ async function handleRescheduled(
 
 
   await sendSlackAlert(supabase, client,
-    `🔄 *Meeting Rescheduled* [${clientCode}]\n*Via:* ${integration.name}\n` +
+    `🔄 *Meeting Rescheduled* [${clientCode}]\n*Via:* ${client.calendar_type || 'calendar'}\n` +
     `*Attendee:* ${n.attendeeName} (${n.attendeeEmail})\n*New time:* ${fmtDt(n.startTime)}\n` +
     `_Review timer reset to ${fmtDt(reviewAt || '')}_`
   )
@@ -475,17 +438,17 @@ async function updatePlusVibeByDomain(supabase: any, email: string) {
     // Zoek contacts met zelfde domein via leads (plusvibe campaign info)
     const { data: domainContacts } = await supabase
       .from('contacts')
-      .select('email, leads(plusvibe_lead_id, campaign:campaigns(plusvibe_id))')
+      .select('email, leads(plusvibe_lead_id, campaign:campaigns(provider_campaign_id))')
       .like('email', `%@${domain}`)
       .not('email', 'is', null)
       .limit(50)
     for (const dc of (domainContacts || [])) {
       if (dc.email === email) continue
       const cc = (dc as any).leads?.[0]
-      if (!cc?.plusvibe_lead_id || !cc?.campaign?.plusvibe_id) continue
+      if (!cc?.plusvibe_lead_id || !cc?.campaign?.provider_campaign_id) continue
       fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
         method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: cc.campaign.plusvibe_id, email: dc.email, new_status: 'COMPLETED' }),
+        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: cc.campaign.provider_campaign_id, email: dc.email, new_status: 'COMPLETED' }),
       }).catch((err: Error) => console.error('[webhook-meeting] PlusVibe domain sync failed:', err.message))
     }
   } catch (err) {
@@ -514,10 +477,7 @@ async function sendSlackAlert(supabase: any, client: any, text: string) {
   if (!token) {
     const webhookUrl = Deno.env.get('SLACK_WEBHOOK_URL')
     if (!webhookUrl) {
-      supabase.from('agent_memory').insert({
-        agent_id: 'webhook-meeting', memory_type: 'slack_pending',
-        content: text, metadata: { client_code: client?.client_code },
-      }).then(() => {})
+      console.error('[webhook-meeting] No Slack token or webhook URL configured, dropping alert:', text.slice(0, 100))
       return
     }
     try { await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: '#sales-alerts', text }) }) }

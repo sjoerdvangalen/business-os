@@ -7,10 +7,10 @@ Usage:
   python orchestrator.py execute --client-code SECX
 
 Phase A (create):
-  Context JSON → clients.gtm_synthesis + campaign_cells → Google Doc → Slack
+  Context JSON → clients.strategy (legacy mirror) + campaign_cells → Google Doc → Slack
 
 Phase B (execute):
-  client_code → campaign_cells.brief.aleads_config → businesses + contacts + contact_campaigns → Slack
+  client_code → campaign_cells.brief.aleads_config → businesses + contacts + leads → Slack
 
 Context JSON schema (for create):
   {
@@ -88,7 +88,7 @@ def create_campaign(context: dict) -> dict:
     Phase A: Synthesize GTM strategy and create campaign cells.
 
     1. Resolve client_id from clients table
-    2. Write synthesis to clients.gtm_synthesis
+    2. Write synthesis to clients.strategy (legacy mirror field)
     3. Upsert campaign_cells rows (one per cell in context)
     4. Create Google Doc (if configured)
     5. Slack notification
@@ -112,10 +112,10 @@ def create_campaign(context: dict) -> dict:
         client_id = None
         print("  SKIP: Supabase not configured — dry run mode")
 
-    # Step 2: Write synthesis to clients.gtm_synthesis
+    # Step 2: Write synthesis to clients.strategy (legacy mirror field)
     if HAS_SUPABASE and synthesis:
         supabase_client.update_gtm_synthesis(client_id, synthesis)
-        print(f"  clients.gtm_synthesis updated ({len(synthesis.get('solutions', []))} solutions, "
+        print(f"  clients.strategy updated ({len(synthesis.get('solutions', []))} solutions, "
               f"{len(synthesis.get('icp_segments', []))} segments)")
 
     # Step 3: Upsert campaign_cells
