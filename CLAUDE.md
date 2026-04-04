@@ -248,6 +248,32 @@ curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-m
   -d '{"triggerEvent":"BOOKING_CREATED","payload":{...}}'
 ```
 
+## Schema Validation (VERPLICHT na elke migratie of deploy)
+
+**DB is leidend. Docs en code moeten matchen met live staat — niet met migratiegeschiedenis.**
+
+Na elke `db push` of schema-wijziging: query live DB en vergelijk met CLAUDE.md. Update CLAUDE.md direct als er verschillen zijn.
+
+```bash
+source ~/.claude/load-env.sh
+
+# Live tabeloverzicht
+curl -s -X POST "https://api.supabase.com/v1/projects/gjhbbyodrbuabfzafzry/database/query" \
+  -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = '\''public'\'' ORDER BY table_type, table_name;"}' \
+  | python3 -c "import json,sys; [print(r['table_type'][:4], r['table_name']) for r in json.load(sys.stdin)]"
+
+# Actieve edge functions (filesystem)
+ls ~/ai-projects/business-os/supabase/functions/ | grep -v "_archive\|_shared"
+```
+
+**Checklist:**
+- [ ] Tabelnamen in CLAUDE.md matchen live DB (niet migratiegeschiedenis)
+- [ ] Kolommen die code gebruikt bestaan live
+- [ ] CLAUDE.md tabellijst bijgewerkt als er iets is gedropped of hernoemd
+- [ ] supabase_client.py + edge functions refereren correcte tabelnamen
+
 ## Outbound Knowledge Base
 **CRITICAL: For ALL outbound, cold email, targeting, copy, and GTM strategy decisions, ALWAYS read `docs/outbound-playbook.md` first.**
 
