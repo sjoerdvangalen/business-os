@@ -41,7 +41,7 @@ Je bouwt 3 blokken die samenkomen in execution:
 - Meeting lifecycle: Cal.com/GHL → webhook-meeting → review → Slack Block Kit → opportunity pipeline
 - Campaign monitoring: health checks */15 min, domain checks dagelijks
 - RLS op alle tabellen, API keys in Supabase secrets
-- Database: 17 tabellen, 24k+ leads, 17k+ businesses, 46k+ email threads
+- Database: 17 tabellen, 24k+ leads, 17k+ companies, 46k+ email threads
 - 24 actieve edge functions (zie CLAUDE.md voor volledige lijst)
 - GTM orchestrator (Python): strategy synthesis, cell design, lead sourcing, Google Docs output
 - Lead gen pipeline: GMaps scraper → A-Leads → TryKitt/Enrow → AI enrich → PlusVibe
@@ -174,7 +174,7 @@ Stap 2 — Messaging/ICP gate (alleen na clean infra):
 ## Data Flow
 
 ```
-Google Maps Scraper → process-gmaps-batch → businesses
+Google Maps Scraper → process-gmaps-batch → companies
 A-Leads API (find-contacts) → contacts (company_id FK)
 email-waterfall (TryKitt) → leads (email verified)
 validate-leads (Enrow) → email_validation_status per lead

@@ -145,7 +145,7 @@ def get_cells_for_client(client_id: str) -> list[dict]:
     return result.data or []
 
 
-# --- Businesses ---
+# --- Companies ---
 
 def upsert_company(domain: str, name: str, enrichment_data: dict | None = None) -> dict:
     payload: dict[str, Any] = {
@@ -158,7 +158,7 @@ def upsert_company(domain: str, name: str, enrichment_data: dict | None = None) 
 
     result = (
         get_client()
-        .table("businesses")
+        .table("companies")
         .upsert(payload, on_conflict="domain")
         .execute()
     )
@@ -168,7 +168,7 @@ def upsert_company(domain: str, name: str, enrichment_data: dict | None = None) 
 def get_company_by_domain(domain: str) -> dict | None:
     result = (
         get_client()
-        .table("businesses")
+        .table("companies")
         .select("id, name, domain")
         .eq("domain", domain)
         .maybe_single()

@@ -122,21 +122,19 @@ gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments, gtm-crud-personas, g
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
 - `email_inboxes` **[active — 4,391 rows]** — Synced from PlusVibe + EmailBison
 - `domains` **[active]** — Email sending domains (SPF/DKIM/DMARC status)
-- `businesses` **[active — 17k+ rows]** — Company/prospect table
-- `contacts` **[active — 27k+ rows]** — Unified person pool, reusable across clients. `company_id FK → businesses`.
+- `companies` **[active — 17k+ rows]** — Company/prospect table (canonical; `businesses` was a transitional table, dropped in migration 20260402000003)
+- `contacts` **[active — 27k+ rows]** — Unified person pool, reusable across clients. `company_id FK → companies`.
 - `leads` **[active — 24k+ rows]** — Linking table: contact × campaign × client. The interaction record.
 - `email_threads` **[active — 46k+ rows]** — Individual email records. Real-time via webhook-receiver.
 - `email_sequences` **[active]** — Email steps within campaigns (synced from PlusVibe)
 - `sync_log` **[active]** — Tracks every sync + agent operation
+- `alerts` **[active]** — System alerts
+- `scraper_runs` **[active]** — Google Maps scraper run tracking
+- `user_profiles` **[active]** — User profiles (dashboard auth)
 
 ### Meeting & CRM
 - `meetings` **[active]** — Calendar meetings (real-time via webhook-meeting)
 - `opportunities` **[active]** — CRM pipeline, auto-created on meeting booking
-
-### Other
-- `daily_kpis` **[active]** — Daily metrics per client
-- `okrs` **[active]** — OKR tracking per client
-- `agent_memory` **[active]** — AI agent state persistence
 
 ### Canonical GTM Data Model
 

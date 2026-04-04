@@ -10,7 +10,7 @@ Phase A (create):
   Context JSON → clients.strategy (legacy mirror) + campaign_cells → Google Doc → Slack
 
 Phase B (execute):
-  client_code → campaign_cells.brief.aleads_config → businesses + contacts + leads → Slack
+  client_code → campaign_cells.brief.aleads_config → companies + contacts + leads → Slack
 
 Context JSON schema (for create):
   {
