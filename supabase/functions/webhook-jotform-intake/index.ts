@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const EXPECTED_FORM_ID = "260936013165049"
+const JOTFORM_API_KEY = Deno.env.get('JOTFORM_API_KEY') ?? ''
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,14 +13,14 @@ const corsHeaders = {
 const FIELD_MAP: Record<string, string> = {
   q3_textbox1:    'company_basics.company_name',
   q4_textbox2:    'company_basics.website',
-  q5_textbox3:    'company_basics.main_contact_name',
-  q7_email5:      'company_basics.main_contact_email',
+  q5_textbox3:    'company_basics.main_contact_name',   // removed from form — kept for backward compat
+  q7_email5:      'company_basics.main_contact_email',  // removed from form — kept for backward compat
   q9_textarea7:   'scope_and_priority.solutions_text',
   q10_textarea8:  'scope_and_priority.priority_solution_text',
   q18_textarea16: 'icp_constraints.icp_segments_text',
   q19_textarea17: 'icp_constraints.hard_disqualifiers_text',
-  q46_textarea:   'icp_constraints.must_have_criteria_text',
-  q43_textarea:   'buyer_scope.target_personas_text',
+  q46_whatAre46:  'icp_constraints.must_have_criteria_text',
+  q43_whatAre:    'buyer_scope.target_personas_text',
   q22_textarea20: 'buyer_scope.excluded_personas_text',
   q30_textarea28: 'proof_and_claims.allowed_proof_text',
   q31_textarea29: 'proof_and_claims.disallowed_proof_text',
@@ -29,6 +30,10 @@ const FIELD_MAP: Record<string, string> = {
   q35_textarea33: 'messaging_boundaries.avoid_tone',
   q36_textarea34: 'messaging_boundaries.compliance_restrictions',
   q41_textarea39: 'misc_notes',
+  q47_typeA:      'integrations.crm_platform',
+  q48_typeA48:    'integrations.crm_api_key',
+  q49_typeA49:    'integrations.calendar_platform',
+  q50_typeA50:    'integrations.calendar_api_key',
 }
 
 const FILE_FIELDS: Record<string, string> = {
@@ -98,6 +103,12 @@ function buildEmptyContract(): Record<string, unknown> {
       compliance_restrictions: '',
     },
     misc_notes: '',
+    integrations: {
+      crm_platform: '',
+      crm_api_key: '',
+      calendar_platform: '',
+      calendar_api_key: '',
+    },
     assets: {
       dnc_files: [],
       sales_assets_files: [],
@@ -113,17 +124,29 @@ function buildEmptyContract(): Record<string, unknown> {
 }
 
 // Parse Jotform file upload field — returns array of file metadata
+// Handles both plain URL strings and objects with url/filename/size
 function parseFileField(value: unknown): Array<{ url: string; filename: string; size: number }> {
   if (!value) return []
-  // Jotform sends files as array of objects or single object
   const files = Array.isArray(value) ? value : [value]
   return files
     .filter(Boolean)
-    .map((f: Record<string, unknown>) => ({
-      url: (f.url || f.fileUrl || '') as string,
-      filename: (f.filename || f.name || '') as string,
-      size: Number(f.size || 0),
-    }))
+    .map((f: unknown) => {
+      let rawUrl = ''
+      let filename = ''
+      if (typeof f === 'string') {
+        rawUrl = f
+        filename = rawUrl.split('/').pop()?.split('?')[0] || ''
+      } else {
+        const fo = f as Record<string, unknown>
+        rawUrl = (fo.url || fo.fileUrl || '') as string
+        filename = (fo.filename || fo.name || rawUrl.split('/').pop()?.split('?')[0] || '') as string
+      }
+      // Append API key so stored URLs are directly downloadable
+      const url = rawUrl && JOTFORM_API_KEY
+        ? `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}apiKey=${JOTFORM_API_KEY}`
+        : rawUrl
+      return { url, filename, size: 0 }
+    })
     .filter(f => f.url || f.filename)
 }
 
