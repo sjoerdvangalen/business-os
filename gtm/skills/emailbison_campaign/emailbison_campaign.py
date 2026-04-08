@@ -400,3 +400,92 @@ class CampaignManager:
             return {"success": True, "result": result}
         except requests.HTTPError as e:
             return {"success": False, "error": e.response.text}
+
+    def create_sequence(
+        self,
+        campaign_id: str,
+        sequence_steps: list[dict],
+        title: str | None = None,
+    ) -> dict:
+        """Create sequence steps for a campaign.
+
+        Args:
+            campaign_id: Email Bison campaign ID
+            sequence_steps: List of step dicts with order, email_subject, email_body, wait_in_days, thread_reply, variant
+            title: Optional sequence title
+
+        Returns:
+            Dict with sequence_id and status
+        """
+        try:
+            payload = {
+                "title": title or "Sequence",
+                "sequence_steps": sequence_steps,
+            }
+
+            result = self._post(
+                f"/campaigns/{campaign_id}/sequence-steps",
+                payload,
+            )
+
+            return {
+                "success": True,
+                "sequence_title": title or "Sequence",
+                "steps_count": len(sequence_steps),
+                "result": result,
+            }
+        except requests.HTTPError as e:
+            return {
+                "success": False,
+                "error": f"Failed to create sequence: {e.response.text}",
+            }
+
+    def create_campaign_with_sequence(
+        self,
+        request: "CampaignCreateRequest",
+        sequence_steps: list[dict],
+        sequence_title: str | None = None,
+    ) -> dict:
+        """Create a campaign and attach a sequence in one operation.
+
+        Args:
+            request: Campaign creation request
+            sequence_steps: List of sequence step dicts with order, email_subject, email_body, wait_in_days, thread_reply, variant
+            sequence_title: Optional title for the sequence
+
+        Returns:
+            Dict with campaign_id, sequence status, and full details
+        """
+        # First create the campaign
+        result = self.create_campaign(request)
+
+        if not result.get("success"):
+            return result
+
+        eb_campaign_id = result["emailbison_campaign_id"]
+
+        # Then create the sequence
+        seq_result = self.create_sequence(
+            eb_campaign_id,
+            sequence_steps,
+            title=sequence_title or request.campaign_name
+        )
+
+        if not seq_result.get("success"):
+            result["warnings"] = result.get("warnings", []) + [
+                f"Campaign created but sequence failed: {seq_result.get('error')}"
+            ]
+            return result
+
+        # Return combined result
+        return {
+            "success": True,
+            "emailbison_campaign_id": eb_campaign_id,
+            "business_os_campaign_id": result["business_os_campaign_id"],
+            "attached_accounts": result.get("attached_accounts", []),
+            "sequence": {
+                "title": seq_result["sequence_title"],
+                "steps_count": seq_result["steps_count"],
+            },
+            "warnings": result.get("warnings", []),
+        }

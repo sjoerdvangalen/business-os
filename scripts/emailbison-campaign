@@ -5,6 +5,7 @@
 # Usage:
 #   ./scripts/emailbison-campaign preview --client FRTC --name "FRTC | EN | Test"
 #   ./scripts/emailbison-campaign create --client FRTC --name "FRTC | EN | Test" --mode immediate
+#   ./scripts/emailbison-campaign patterns
 #   ./scripts/emailbison-campaign sequences
 
 set -e

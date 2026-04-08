@@ -3,6 +3,7 @@
 Usage:
     python -m gtm.skills.emailbison_campaign.cli preview --client FRTC --name "Test Campaign"
     python -m gtm.skills.emailbison_campaign.cli create --client FRTC --name "Test Campaign" --mode immediate
+    python -m gtm.skills.emailbison_campaign.cli patterns
 """
 
 import argparse
@@ -145,6 +146,74 @@ def cmd_list_sequences(args):
         print(json.dumps(sequences, indent=2))
 
 
+def cmd_list_patterns(args):
+    """List available Email Bison spintax patterns."""
+    from . import patterns
+
+    print(f"\nEmail Bison Spintax Pattern Library")
+    print(f"====================================")
+    print(f"Format: {{optie1|optie2|optie3}} voor variatie")
+    print(f"Variabelen: {{FIRST_NAME}}, {{COMPANY_NAME}}, etc. (UPPERCASE)")
+
+    # Aanheffen
+    print(f"\n--- AANHEFFEN ---")
+    print(f"\nNederlands (standaard - uit PlusVibe):")
+    print(f"  {patterns.SALUTATION_NL_STANDARD}")
+    print(f"\n  Alternatieven:")
+    for style, text in patterns.SALUTATION_NL_ALT.items():
+        print(f"    {style:<12} {text}")
+
+    print(f"\nEnglish (standard - uit PlusVibe):")
+    print(f"  {patterns.SALUTATION_EN_STANDARD}")
+    print(f"\n  Alternatives:")
+    for style, text in patterns.SALUTATION_EN_ALT.items():
+        print(f"    {style:<12} {text}")
+
+    print(f"\n--- NESTED SPINTAX ---")
+    print(f"Variables binnen spintax mogelijk:")
+    print(f"  {{Goedendag {{FIRST_NAME}}|Hi {{FIRST_NAME}}}}")
+    print(f"  (Wisselt complete aanhef met variable)")
+
+    # Afsluitingen
+    print(f"\n--- AFSLUITINGEN ---")
+    print(f"\nNederlands (uit PlusVibe sequences):")
+    print(f"  Formeel:     Met vriendelijke groet,")
+    print(f"               {{SENDER_FULL_NAME}}")
+    print(f"\n  Spintax:     {patterns.CLOSING_NL_SPINTAX}")
+
+    print(f"\nEnglish:")
+    print(f"  {patterns.CLOSING_EN_SPINTAX}")
+
+    # Variabelen
+    print(f"\n--- VARIABELEN ---")
+    for name, info in patterns.EMAIL_BISON_VARIABLES.items():
+        print(f"  {info['pattern']:<20} {info['description']}")
+        print(f"                       Voorbeeld: {info['example']}")
+
+    # Subject lines
+    print(f"\n--- SUBJECT LINE VOORBEELDEN ---")
+    for name, text in patterns.SUBJECT_LINE_EXAMPLES.items():
+        print(f"  {name}: {text}")
+
+    # Body fragments
+    print(f"\n--- BODY FRAGMENTEN (EN) ---")
+    for name, text in patterns.BODY_FRAGMENTS_EN.items():
+        print(f"  {name:<12} {text}")
+
+    print(f"\n--- BODY FRAGMENTEN (NL) ---")
+    for name, text in patterns.BODY_FRAGMENTS_NL.items():
+        print(f"  {name:<12} {text}")
+
+    # Complete voorbeelden
+    print(f"\n--- COMPLETE VOORBEELDEN ---")
+    print(f"\nNL:")
+    print(f"{patterns.EXAMPLE_EMAIL_NL[:300]}...")
+
+    if args.json:
+        print(f"\nJSON:")
+        print(json.dumps(patterns.list_all_patterns(), indent=2, default=str))
+
+
 def main():
     """Main CLI entrypoint."""
     setup_paths()
@@ -164,7 +233,10 @@ Examples:
   Create campaign (immediate):
     %(prog)s create --client FRTC --name "FRTC | EN | Test Campaign" --mode immediate
 
-  List sequences:
+  List patterns (aanhef/afsluiting/variables):
+    %(prog)s patterns
+
+  List sequences from Supabase:
     %(prog)s sequences
 """,
     )
@@ -191,9 +263,13 @@ Examples:
     create_parser.add_argument("--min-warmup-score", type=int, default=80, help="Minimum warmup score")
     create_parser.add_argument("--cell-id", help="Campaign cell ID to link")
 
-    # Sequences command
-    seq_parser = subparsers.add_parser("sequences", help="List available sequences")
+    # Sequences command (lists sequences from Supabase)
+    seq_parser = subparsers.add_parser("sequences", help="List sequences from Supabase")
     seq_parser.add_argument("--json", action="store_true", help="Output JSON")
+
+    # Patterns command (shows aanhef/afsluiting/variables)
+    patterns_parser = subparsers.add_parser("patterns", help="List patterns for building sequences")
+    patterns_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     args = parser.parse_args()
 
@@ -205,6 +281,7 @@ Examples:
         "preview": cmd_preview,
         "create": cmd_create,
         "sequences": cmd_list_sequences,
+        "patterns": cmd_list_patterns,
     }
 
     commands[args.command](args)

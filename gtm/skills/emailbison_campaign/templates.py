@@ -1,7 +1,10 @@
 """Email Bison Campaign Templates.
 
-Pre-defined campaign configurations for different use cases.
-All templates use the business-os default settings for optimal deliverability.
+Pre-defined campaign settings (NOT sequences).
+Sequences are built using patterns from patterns.py - no hardcoded templates.
+
+For sequence patterns, see:
+- patterns.py: Salutations, closings, variables, structure patterns
 """
 
 from .config import EmailBisonCampaignSettings

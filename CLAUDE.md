@@ -126,22 +126,53 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 - Unsubscribe link: disabled (gebruik opt-out tekst)
 - Prioritize followups: enabled
 
+**Email Bison Spintax** (`patterns.py`):
+- Spintax: `{Hi|Hallo|Goedendag}` voor willekeurige variatie
+- Variabelen: `{FIRST_NAME}`, `{COMPANY_NAME}`, `{SENDER_FULL_NAME}` (UPPERCASE)
+- Standaard NL: `{Hi|Hallo|Goedendag} {FIRST_NAME},`
+- Standaard afsluiting: `Met vriendelijke groet,\n{SENDER_FULL_NAME}`
+- Documentatie: https://help.emailbison.com/en/articles/spintax
+
 **Gebruik**:
 ```bash
 # Preview mode (check inboxes/settings)
 ./scripts/emailbison-campaign preview --client FRTC --name "FRTC | EN | Test"
 
-# Create immediate
+# Create campaign
 ./scripts/emailbison-campaign create --client FRTC --name "FRTC | EN | Test" --mode immediate
+
+# List patterns (aanhef/afsluiting/variables)
+./scripts/emailbison-campaign patterns
 ```
 
 **API**: `POST /functions/v1/emailbison-campaign-create`
+
+**Payload met sequence steps**:
+```json
+{
+  "client_code": "FRTC",
+  "campaign_name": "FRTC | EN | Campaign Name",
+  "sequence_steps": [
+    {
+      "order": 1,
+      "email_subject": "quick question about {company_name}",
+      "email_body": "Hi {first_name},\n\n...",
+      "wait_in_days": 1,
+      "thread_reply": false,
+      "variant": false
+    }
+  ],
+  "mode": "immediate",
+  "cell_id": "uuid-of-campaign-cell"
+}
+```
 
 **Waarom edge function?**
 - Consistente API voor CLI, orchestrator, en externe systemen
 - Centraliseert Email Bison API credentials (veiliger)
 - Idempotent (upsert op provider_campaign_id)
 - Auto-link naar campaign_cells bij cell_id meegegeven
+- Ontvangt sequence steps via API (geen harde templates)
 
 ---
 

@@ -35,6 +35,9 @@ python -m gtm.skills.emailbison_campaign.cli create \
 
 # List available sequences
 python -m gtm.skills.emailbison_campaign.cli sequences
+
+# List patterns (aanhef/afsluiting/variables)
+python -m gtm.skills.emailbison_campaign.cli patterns
 ```
 
 ### Python API
@@ -112,6 +115,69 @@ SUPABASE_SERVICE_ROLE_KEY=your_key_here
 - Plain text: ja
 - Unsubscribe link: nee
 
+## Email Bison Spintax Syntax
+
+Email Bison gebruikt **Spintax** voor variatie en **Liquid-style variabelen** voor personalisatie.
+
+**→ Uitgebreide documentatie: [SPINTAX.md](./SPINTAX.md)**
+
+### Spintax Formaat
+
+Gebruik `{optie1|optie2|optie3}` voor willekeurige rotatie per email:
+
+```
+{Hi|Hallo|Goedendag} {FIRST_NAME},
+```
+
+Resultaat: Elk bericht krijgt willekeurig "Hi John," of "Hello John," of "Hey John,"
+
+### Variabelen (UPPERCASE)
+
+| Variabele | Voorbeeld | Beschrijving |
+|-----------|-----------|--------------|
+| `{FIRST_NAME}` | John, Sjoerd | Contact voornaam |
+| `{COMPANY_NAME}` | Acme Corp | Bedrijfsnaam prospect |
+| `{SENDER_FULL_NAME}` | Jan Jansen | Volledige naam afzender |
+| `{ICP}` | SaaS, Consulting | Industrie segment |
+
+### Nested Spintax
+
+Variabelen kunnen binnen spintax:
+
+```
+{Goedendag {FIRST_NAME}|Hi {FIRST_NAME}}
+```
+
+### Officiele Patronen (uit PlusVibe sequences)
+
+**Nederlandse aanhef:**
+```
+{Hi|Hallo|Goedendag|Dag|Hoi} {FIRST_NAME},
+```
+
+**Nederlandse afsluiting:**
+```
+{Met vriendelijke groet|Vriendelijke groet|Met hartelijke groet|Hartelijke groet|Groet|Groeten},
+{SENDER_FULL_NAME}
+```
+
+**Engelse afsluiting:**
+```
+{Best regards|Kind regards|Warm regards|Sincerely|All the best|Best|Cheers|Regards},
+{SENDER_FULL_NAME}
+```
+
+### CLI: Bekijk Alle Patronen
+
+```bash
+./scripts/emailbison-campaign patterns
+```
+
+### Documentatie
+- Email Bison Spintax: https://help.emailbison.com/en/articles/spintax
+- Liquid Templates: https://shopify.github.io/liquid/
+- **Uitgebreide patronen: [SPINTAX.md](./SPINTAX.md)**
+
 ## Inbox Attachment
 
 De skill koppelt automatisch gewarmde inboxes aan de campaign via het Email Bison API endpoint `POST /api/campaigns/{id}/attach-sender-emails`.
@@ -144,15 +210,17 @@ python -m gtm.skills.emailbison_campaign.cli create --client GTMS --name "Test" 
 gtm/skills/emailbison_campaign/
 ├── __init__.py              # Package exports
 ├── SKILL.md                 # Deze documentatie
+├── SPINTAX.md               # Spintax syntax & pattern library docs
 ├── config.py                # Data classes (settings, requests, previews)
-├── templates.py             # Campaign templates
+├── templates.py             # Campaign settings templates (NOT sequences)
+├── patterns.py              # Pattern library (aanhef/afsluiting/variables)
 ├── emailbison_campaign.py   # Core CampaignManager class
 └── cli.py                   # CLI interface
 ```
 
 ## Integratie met Orchestrator
 
-Voor automatische campaign creatie in step 8:
+Voor automatische campaign creatie vanuit campaign cells:
 
 ```python
 # In gtm/orchestrator.py
@@ -161,34 +229,78 @@ from gtm.skills.emailbison_campaign import (
     CampaignCreateRequest,
     AccountAttachmentConfig,
 )
+from gtm.skills.emailbison_campaign.patterns import (
+    get_salutations,
+    get_closings,
+)
 
-def deploy_campaign_cell(cell_id: str):
+def deploy_campaign_cell(cell_id: str, sequence_steps: list[dict] = None):
+    """Deploy a campaign cell to Email Bison."""
     cell = get_cell(cell_id)
     config = cell["brief"].get("emailbison_config", {})
 
-    if config.get("auto_create"):
-        manager = CampaignManager()
-        request = CampaignCreateRequest(
-            client_code=cell["client_code"],
-            campaign_name=f"{cell['cell_code']} | Live",
-            template=config.get("template", "business_os_default"),
-            sequence_id=config.get("sequence_id"),
-            account_config=AccountAttachmentConfig(mode=config.get("account_mode", "immediate")),
-            cell_id=cell_id,
+    if not config.get("auto_create"):
+        return {"success": False, "message": "auto_create disabled"}
+
+    manager = CampaignManager()
+    request = CampaignCreateRequest(
+        client_code=cell["client_code"],
+        campaign_name=f"{cell['cell_code']} | Live",
+        template=config.get("template", "business_os_default"),
+        account_config=AccountAttachmentConfig(
+            mode=config.get("account_mode", "immediate")
+        ),
+        cell_id=cell_id,
+    )
+
+    # Optioneel: sequence steps meegeven
+    if sequence_steps:
+        result = manager.create_campaign_with_sequence(
+            request,
+            sequence_title=f"{cell['cell_code']} | Sequence",
+            steps=sequence_steps
         )
+    else:
         result = manager.create_campaign(request)
-        return result
+
+    return result
+```
+
+### Via Edge Function (voor externe integraties)
+
+```bash
+# Create campaign with sequence steps
+curl -X POST "https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/emailbison-campaign-create" \
+  -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_code": "FRTC",
+    "campaign_name": "FRTC | EN | Test",
+    "sequence_steps": [
+      {
+        "order": 1,
+        "email_subject": "quick question about {company_name}",
+        "email_body": "Hi {first_name},\n\nI noticed {company_name}...",
+        "wait_in_days": 1,
+        "thread_reply": false,
+        "variant": false
+      }
+    ],
+    "mode": "immediate"
+  }'
 ```
 
 ## Error Handling
 
 - Geen warmed inboxes: `can_create = False` met warning
 - Email Bison API error: retry 3x, dan error response
-- Sequence niet gevonden: fallback naar default (geen sequence)
+- Sequence steps invalid: error met details
 
 ## Future Extensions
 
 - [ ] Health check filtering (bounces, replies)
-- [ ] Meerdere templates (aggressive, pilot, etc.)
+- [ ] Meerdere campaign templates (aggressive, pilot, etc.)
 - [ ] Campaign update/pauze/resume via CLI
+- [x] Email Bison spintax pattern library
+- [ ] Sequence builder CLI tool
 - [ ] Automatische sequence selectie gebaseerd op cell type

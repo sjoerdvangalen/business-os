@@ -26,9 +26,21 @@ interface CampaignRequest {
   campaign_name: string
   template?: string
   sequence_id?: string
+  /** Pass sequence steps directly - no built-in templates */
+  sequence_steps?: SequenceStep[]
   mode?: 'review' | 'immediate'
   min_warmup_score?: number
   cell_id?: string
+}
+
+/** Sequence step for Email Bison */
+interface SequenceStep {
+  order: number
+  email_subject: string
+  email_body: string
+  wait_in_days: number
+  variant: boolean
+  thread_reply: boolean
 }
 
 const DEFAULT_SETTINGS = {
@@ -63,6 +75,7 @@ serve(async (req) => {
       campaign_name,
       template = 'business_os_default',
       sequence_id,
+      sequence_steps,
       mode = 'review',
       min_warmup_score = 80,
       cell_id,
@@ -128,6 +141,14 @@ serve(async (req) => {
       total_inboxes: warmedInboxes.length,
       can_create: warmedInboxes.length > 0,
       mode,
+      sequence_steps: sequence_steps ? {
+        count: sequence_steps.length,
+        preview: sequence_steps.map(s => ({
+          order: s.order,
+          subject: s.email_subject.substring(0, 50) + (s.email_subject.length > 50 ? '...' : ''),
+          wait_in_days: s.wait_in_days,
+        })),
+      } : null,
     }
 
     // If review mode, return preview only
@@ -257,7 +278,47 @@ serve(async (req) => {
       warnings.push(`Failed to set schedule: ${errorText}`)
     }
 
-    // Attach sender emails to campaign using the correct endpoint
+    // Step 4: Create sequence if steps provided
+    let sequenceResult: { success: boolean; title?: string; steps_count?: number; error?: string } = { success: false }
+
+    if (sequence_steps && sequence_steps.length > 0) {
+      try {
+        const seqPayload = {
+          title: campaign_name,
+          sequence_steps: sequence_steps,
+        }
+
+        const seqResponse = await fetch(
+          `https://mail.scaleyourleads.com/api/campaigns/${ebCampaignId}/sequence-steps`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(seqPayload),
+          }
+        )
+
+        if (seqResponse.ok) {
+          sequenceResult = {
+            success: true,
+            title: campaign_name,
+            steps_count: sequence_steps.length,
+          }
+        } else {
+          const errorText = await seqResponse.text()
+          sequenceResult = { success: false, error: errorText }
+          warnings.push(`Failed to create sequence: ${errorText}`)
+        }
+      } catch (e) {
+        const errorMsg = (e as Error).message
+        sequenceResult = { success: false, error: errorMsg }
+        warnings.push(`Error creating sequence: ${errorMsg}`)
+      }
+    }
+
+    // Step 5: Attach sender emails to campaign using the correct endpoint
     // POST /api/campaigns/{id}/attach-sender-emails
     const senderEmailsToAttach = warmedInboxes
       .filter(inbox => inbox.provider_inbox_id)
@@ -342,6 +403,10 @@ serve(async (req) => {
         business_os_campaign_id: campaignRecord.id,
         attached_accounts: attachedAccounts,
         total_attached: attachedAccounts.length,
+        sequence: sequenceResult.success ? {
+          title: sequenceResult.title,
+          steps_count: sequenceResult.steps_count,
+        } : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
