@@ -59,7 +59,7 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ├── gtm/                               # GTM automation (Python)
 │   ├── orchestrator.py                # Main orchestrator (Phase A: strategy, Phase B: data pipeline)
 │   ├── lib/                           # Supabase client, A-Leads, enrichment, Google, Slack
-│   └── skills/                        # AI skills: solution_mapping, offer_dev, icp_persona, cell_design
+│   └── skills/                        # AI skills: solution_mapping, offer_dev, icp_persona, cell_design, emailbison_campaign
 ├── scripts/
 │   ├── bulk-import-csv.ts             # Bulk CSV import (Clay, LinkedIn, manual, GMaps)
 │   └── manual-sync-leads.js           # Manual PlusVibe lead sync
@@ -96,6 +96,7 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - `domain-monitor` — Deliverability check daily at 06:00 UTC
 - `daily-digest` — Daily summary of all client activity (7:00 CET)
 - `verify-deployment` — Infrastructure verification
+- `emailbison-campaign-create` — Create campaigns with standard settings + warmed inbox attachment
 
 ### Lead Generation
 - `email-waterfall` — TryKitt email verification (patterns)
@@ -106,6 +107,43 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 
 ### Archived (16 in `_archive/`, not deployed)
 gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments, gtm-crud-personas, gtm-crud-cells, gtm-crud-runs, gtm-crud-variants, analyze-attribution, analyze-icp, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
+
+---
+
+## GTM Skills (Python)
+
+Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills gebruiken het canonieke model: `gtm_strategies` + `campaign_cells`.
+
+### `emailbison_campaign` — Campaign Creation
+
+**Doel**: Standaardiseerde Email Bison campaign creatie met warmed inbox attachment.
+
+**Settings (business_os_default template)**:
+- Max emails/day: 10,000
+- Schedule: 08:00-17:00, Mon-Fri, Europe/Amsterdam
+- Track opens: disabled (deliverability)
+- Plain text: enabled
+- Unsubscribe link: disabled (gebruik opt-out tekst)
+- Prioritize followups: enabled
+
+**Gebruik**:
+```bash
+# Preview mode (check inboxes/settings)
+./scripts/emailbison-campaign preview --client FRTC --name "FRTC | EN | Test"
+
+# Create immediate
+./scripts/emailbison-campaign create --client FRTC --name "FRTC | EN | Test" --mode immediate
+```
+
+**API**: `POST /functions/v1/emailbison-campaign-create`
+
+**Waarom edge function?**
+- Consistente API voor CLI, orchestrator, en externe systemen
+- Centraliseert Email Bison API credentials (veiliger)
+- Idempotent (upsert op provider_campaign_id)
+- Auto-link naar campaign_cells bij cell_id meegegeven
+
+---
 
 ## Supabase Schema
 

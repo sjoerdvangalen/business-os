@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# Email Bison Campaign CLI Wrapper
+#
+# Usage:
+#   ./scripts/emailbison-campaign preview --client FRTC --name "FRTC | EN | Test"
+#   ./scripts/emailbison-campaign create --client FRTC --name "FRTC | EN | Test" --mode immediate
+#   ./scripts/emailbison-campaign sequences
+
+set -e
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Load environment
+if [ -f "$HOME/.claude/.env" ]; then
+    export $(grep -v '^#' "$HOME/.claude/.env" | xargs)
+fi
+
+# Run Python CLI
+cd "$PROJECT_DIR"
+python3 -m gtm.skills.emailbison_campaign.cli "$@"
