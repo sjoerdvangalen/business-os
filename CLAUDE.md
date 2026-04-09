@@ -32,9 +32,9 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ## Tech Stack
 - **Database**: Supabase (project: `gjhbbyodrbuabfzafzry`, region: West EU Ireland)
 - **Edge Functions**: Deno + TypeScript (Supabase Edge Functions)
-- **Email Platform**: PlusVibe (workspace: `68f8e5d7e13f67d591c4f0a8`) + EmailBison (backup)
+- **Email Platform**: EmailBison (primair) — PlusVibe gearchiveerd (sync + webhook in _archive/)
 - **Calendar**: Cal.com + GoHighLevel (multi-provider via webhook-meeting)
-- **Automation**: Supabase pg_cron + Edge Functions (replacing n8n)
+- **Automation**: Supabase pg_cron + Edge Functions (n8n gearchiveerd)
 - **Communication**: Slack (per-client channels + #vgg-alerts), Google Workspace
 - **GTM Orchestrator**: Python (gtm/) — strategy synthesis, cell design, lead sourcing
 - **Code**: GitHub
@@ -70,43 +70,48 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 └── _archive/docs/                     # Archived reference docs
 ```
 
-## Edge Functions (24 active)
+## Edge Functions (28 active)
 
-### Core Sync
-- `sync-plusvibe-campaigns` — Every 15 min via pg_cron
-- `sync-plusvibe-accounts` — Every 15 min via pg_cron
-- `sync-plusvibe-warmup` — Daily at 00:00 UTC
-- `sync-plusvibe-leads` — Every 15 min — lead catch-up sync
+### EmailBison Sync (pg_cron)
+- `sync-emailbison-accounts` — Every 15 min — email accounts + warmup scores
+- `sync-emailbison-campaigns` — Every 15 min — campaign stats
+- `sync-emailbison-sequences` — Hourly — sequence steps + KPIs
 - `sync-domains` — Daily — domain health from email accounts
-- `sync-sequences` — Every 15 min — email sequences from PlusVibe
-- `sync-emailbison-accounts` — EmailBison email accounts sync
-- `sync-emailbison-campaigns` — EmailBison campaigns sync
-- `sync-emailbison-sequences` — EmailBison sequence steps sync
 
 ### Webhooks
-- `webhook-receiver` — Real-time PlusVibe webhook events
-- `webhook-emailbison` — Real-time EmailBison events (replies, bounces, opens)
+- `webhook-emailbison` — Real-time EmailBison events (replies, bounces, sends, inbox status, warmup, DNC)
 - `webhook-meeting` — Multi-provider meeting webhook (Cal.com, Calendly, GHL)
 - `webhook-slack-interaction` — Slack button/modal handler for meeting reviews
+- `webhook-jotform-intake` — Client onboarding intake form
+
+### GTM Pipeline
+- `gtm-research` + `gtm-research-poll` — Exa deep research (async)
+- `gtm-synthesis` — OpenAI gpt-5.4 strategy synthesis
+- `gtm-doc-render` — Google Docs render (internal/external)
+- `gtm-approve` — Manual approval actions
+- `gtm-messaging-doc` — Kimi messaging doc generation
+- `gtm-aleads-source` — A-Leads sourcing
+- `gtm-infra-status` — Infra readiness check
+- `gtm-campaign-push` — EmailBison campaign creation + inbox attachment
 
 ### Processing
-- `meeting-review` — Cron */5 min — sends Slack Block Kit review after meetings
-- `populate-daily-kpis` — Daily KPI aggregation
+- `meeting-review` — Cron */5 min — Slack Block Kit review after meetings
 - `campaign-monitor` — Health checks every 15 min
 - `domain-monitor` — Deliverability check daily at 06:00 UTC
 - `daily-digest` — Daily summary of all client activity (7:00 CET)
-- `verify-deployment` — Infrastructure verification
 - `emailbison-campaign-create` — Create campaigns with standard settings + warmed inbox attachment
+- `data-sourcing-orchestrator` — Full sourcing pipeline: source → validate → push
+- `emailbison-pusher` — Push validated contacts to EmailBison campaigns
 
 ### Lead Generation
-- `email-waterfall` — TryKitt email verification (patterns)
+- `email-waterfall` — TryKitt email verification (patterns) + DNC check
 - `ai-enrich-contact` — AI enrichment for contacts
 - `process-gmaps-batch` — Process Google Maps scraper batches
 - `find-contacts` — A-Leads contact finder for companies
 - `validate-leads` — Enrow email validation
 
-### Archived (16 in `_archive/`, not deployed)
-gtm-crud-strategies, gtm-crud-solutions, gtm-crud-segments, gtm-crud-personas, gtm-crud-cells, gtm-crud-runs, gtm-crud-variants, analyze-attribution, analyze-icp, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
+### Archived (in `_archive/`, not deployed)
+sync-plusvibe-campaigns, sync-plusvibe-accounts, sync-plusvibe-warmup, sync-plusvibe-leads, sync-sequences, webhook-receiver, populate-daily-kpis, verify-deployment, gtm-crud-*, analyze-*, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
 
 ---
 
@@ -178,26 +183,31 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 
 ## Supabase Schema
 
-17 tables. Marked: **[active]** = has data, **[new]** = recently created/recreated.
+19 tables live. PlusVibe gearchiveerd, EmailBison is primair.
 
 ### Core — Sync & Operations
 - `clients` **[active — 19 rows]** — Hub table, all data connects here via client_id
   - `onboarding_form` JSONB, `research` JSONB
-  - `phase` — client_phase enum (0_onboarding → ...)
+  - `status` — client_lifecycle enum (onboarding/running/scaling/paused/offboarding/churned)
+  - `stage` — client_stage_type enum (intake/internal_approval/.../h1/f1/cta1/scaling)
+  - `approval_status` — strategy_approval enum (draft/synthesized/.../external_approved)
   - `slack_channel_id` — Slack channel for this client's alerts/reviews
-  - **Legacy mirror fields** (not canonical, do not use in new code): `strategy` JSONB, `icp_segments` JSONB, `campaign_cells` JSONB, `phase_log` JSONB, `gate_status`, `gate_score`, `gate_feedback`
-- `campaigns` **[active — 49 rows]** — Synced from PlusVibe + EmailBison
-  - `provider` — plusvibe/emailbison/manual
+  - `workflow_metrics` JSONB — timing + subflow tracking
+  - `dnc_entities` JSONB — do-not-contact MVP (legacy, canonical DNC in dnc_entities table)
+  - `gtm_synthesis` JSONB — DEPRECATED_READONLY (canonical in gtm_strategies)
+- `campaigns` **[active — 49 rows]** — Synced from EmailBison
+  - `provider` — emailbison/manual (plusvibe legacy)
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
-- `email_inboxes` **[active — 4,391 rows]** — Synced from PlusVibe + EmailBison
+- `email_inboxes` **[active — 5,906 rows]** — Synced from EmailBison
+  - `status` — connected/disconnected/bouncing/active/removed/paused/disabled
 - `domains` **[active]** — Email sending domains (SPF/DKIM/DMARC status)
-- `companies` **[active — 17k+ rows]** — Company/prospect table (canonical; `businesses` was a transitional table, dropped in migration 20260402000003)
+- `companies` **[active — 17k+ rows]** — Company/prospect table (canonical)
 - `contacts` **[active — 27k+ rows]** — Unified person pool, reusable across clients. `company_id FK → companies`.
-- `leads` **[active — 24k+ rows]** — Linking table: contact × campaign × client. The interaction record.
-- `email_threads` **[active — 46k+ rows]** — Individual email records. Real-time via webhook-receiver.
-- `email_sequences` **[active]** — Email steps within campaigns (synced from PlusVibe)
+- `leads` **[active — 24k+ rows]** — Pure junction table: contact_id × campaign_id × client_id + status/tracking.
+- `email_threads` **[active — 46k+ rows]** — Individual email records. Real-time via webhook-emailbison.
+- `email_sequences` **[active]** — Email steps within campaigns (synced from EmailBison)
 - `sync_log` **[active]** — Tracks every sync + agent operation
-- `alerts` **[active]** — System alerts
+- `alerts` **[active]** — System alerts (inbox_disconnected, warmup events, etc.)
 - `scraper_runs` **[active]** — Google Maps scraper run tracking
 - `user_profiles` **[active]** — User profiles (dashboard auth)
 
@@ -221,9 +231,14 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
   - Status: draft → pilot_copy → H1_testing → H1_winner → F1_testing → F1_winner → CTA1_testing → soft_launch → scaling → killed
   - `runs[].variants[]` contains concrete hooks, subject lines, sample emails, CTA variants — not the cell definition itself
 
-**No active standalone GTM tables** for solutions, icp_segments, buyer_personas, entry_offers, campaign_runs, campaign_variants. These were dropped in migration 20260402000004 and replaced by JSONB in gtm_strategies + campaign_cells.
+**No active standalone GTM tables** for solutions, icp_segments, buyer_personas, entry_offers, campaign_runs, campaign_variants. These were dropped and replaced by JSONB in gtm_strategies + campaign_cells.
 
-**`clients` is NOT a canonical GTM data container.** GTM-related JSONB fields on clients (`strategy`, `icp_segments`, `campaign_cells`, `phase_log`) are legacy mirror fields — not canonical, not to be used by new code.
+### Data Sourcing & Suppression
+- `sourcing_runs` **[active]** — Tracking per data sourcing run (company/contact/validation/push)
+- `contact_validation_log` **[active]** — Audit trail per email validation (trykitt/enrow/omni results)
+- `dnc_entities` **[active]** — Do Not Contact suppression (email/domain/contact_id, per-client or global)
+  - `reason` — bounce/unsubscribe/spam_complaint/manual_request/replied/meeting_booked
+  - Global unique index voor NULL client_id (PostgreSQL NULL != NULL fix)
 
 ### Messaging Approval Model
 
@@ -233,19 +248,19 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 - **Test logic** (H1/F1/CTA1 rotation) = managed internally, not client-facing
 
 ### Agent Architecture
-- **Reply pipeline**: PlusVibe/EmailBison webhooks → `webhook-receiver`/`webhook-emailbison` → stores in email_threads + leads → PlusVibe API + Slack
-- **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + PlusVibe API + Slack
+- **Reply pipeline**: EmailBison webhooks → `webhook-emailbison` → stores in email_threads + contacts → DNC entities + Slack
+- **Meeting pipeline**: Cal.com/Calendly/GHL webhook → `webhook-meeting` → meetings + opportunities + Slack
 - **Monitoring**: `campaign-monitor` (*/15 min), `domain-monitor` (daily)
-- **Syncs**: campaigns, inboxes, leads (*/15 min), warmup + domains (daily), sequences (*/15 min)
+- **Syncs**: campaigns, inboxes (*/15 min), sequences (hourly), domains (daily) — all via EmailBison API
 
 ### Lead Generation Pipeline
 ```
-Google Maps Scraper → process-gmaps-batch → businesses table
+Google Maps Scraper → process-gmaps-batch → companies table
   → find-contacts (A-Leads API) → contacts table
     → email-waterfall (TryKitt patterns) → verified email
       → validate-leads (Enrow) → email_validation_status
         → ai-enrich-contact (Kimi AI) → personalization data
-          → PlusVibe API → campaigns
+          → emailbison-pusher → EmailBison campaigns
 ```
 
 **APIs Used:**
@@ -291,9 +306,9 @@ INPE (Inplenion ERP), NELA (Next Level Amazon), SOVA (SOV Agency), SOCT (Social 
 ## Conventions
 - **Campaign naming**: `CLIENT_CODE | Language | Description` (e.g., `FRTC | EN | Origination SaaS`)
 - **Client matching**: Extract client_code from first segment of campaign name, uppercase
-- **IDs**: All tables use UUID primary keys, PlusVibe records have `plusvibe_id` TEXT field
+- **IDs**: All tables use UUID primary keys, provider records have `provider_campaign_id`/`provider_inbox_id` TEXT fields
 - **Timestamps**: All tables have `created_at` and `updated_at` (auto-updated via trigger)
-- **Sync pattern**: Edge function → PlusVibe/EmailBison API → upsert into Supabase → log to sync_log
+- **Sync pattern**: Edge function → EmailBison API → upsert into Supabase → log to sync_log
 - **Meeting webhook URL**: `https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-meeting?token=<TOKEN>`
 
 ## Git & Commits
@@ -355,6 +370,5 @@ Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioC
 **When asked about a client with research files, ALWAYS read them first for full context.**
 
 ## Known Issues
-- n8n workflows still running as backup — DO NOT deactivate until Supabase system is fully verified
 - Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)
 - `SLACK_TEST_CHANNEL` env var still set to `C0A50BSF8E8` (GTM Scaling) — unset when going live per client

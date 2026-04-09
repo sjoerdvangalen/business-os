@@ -36,15 +36,17 @@ Je bouwt 3 blokken die samenkomen in execution:
 
 ## Wat al werkt (operationeel)
 
-- PlusVibe + EmailBison syncs: campaigns, email_inboxes, leads, warmup, sequences, domains (*/15 min + daily)
-- Reply pipeline: webhook-receiver/webhook-emailbison → email_threads + leads → PlusVibe + Slack
+- EmailBison syncs: campaigns, email_inboxes, sequences (*/15 min + hourly), domains (daily)
+- Reply pipeline: webhook-emailbison → email_threads + contacts → DNC entities + Slack
 - Meeting lifecycle: Cal.com/GHL → webhook-meeting → review → Slack Block Kit → opportunity pipeline
 - Campaign monitoring: health checks */15 min, domain checks dagelijks
 - RLS op alle tabellen, API keys in Supabase secrets
-- Database: 17 tabellen, 24k+ leads, 17k+ companies, 46k+ email threads
-- 24 actieve edge functions (zie CLAUDE.md voor volledige lijst)
+- Database: 19 tabellen, 24k+ leads, 17k+ companies, 46k+ email threads
+- 28 actieve edge functions (zie CLAUDE.md voor volledige lijst)
 - GTM orchestrator (Python): strategy synthesis, cell design, lead sourcing, Google Docs output
-- Lead gen pipeline: GMaps scraper → A-Leads → TryKitt/Enrow → AI enrich → PlusVibe
+- GTM pipeline: jotform → research → synthesis → doc render → approve → sourcing → campaign push
+- Lead gen pipeline: GMaps scraper → A-Leads → TryKitt/Enrow → AI enrich → EmailBison
+- PlusVibe volledig gearchiveerd (sync + webhook functions in _archive/)
 
 ---
 
@@ -60,7 +62,7 @@ Je bouwt 3 blokken die samenkomen in execution:
 - [x] Legacy tabellen gedropped (solutions, buyer_personas, campaign_runs, campaign_variants, etc.)
 - [ ] Calendar webhooks configureren: GTMS/BETS/DOMS (Cal.com), DIGT/PROL/NEBE (GHL)
 - [ ] SLACK_TEST_CHANNEL verwijderen → clients.slack_channel_id per client activeren
-- [ ] n8n shadow mode (1 week data vergelijken) → daarna definitief uit
+- [x] n8n gearchiveerd — Supabase pg_cron + Edge Functions volledig operationeel
 
 ---
 
@@ -78,7 +80,10 @@ Alle skills schrijven naar het canonieke model: `gtm_strategies` (JSONB containe
 #3  internal-gate-review       Score-based rubric (100 pts) → APPROVE ≥80 / REJECT
 #4  campaign-cell-designer     strategy → campaign_cells met immutable snapshot
 #5  lead-sourcing-builder      aleads_config → hard filter → shortlist → AI scoring ≥65
-#6  push-campaign-plusvibe     campaign_cells → PlusVibe via MCP → campaigns.plusvibe_id
+#6  emailbison-campaign-create [DONE] campaign_cells → EmailBison → campaigns
+#7  emailbison-pusher          [DONE] validated contacts → EmailBison campaigns via 2-step API
+     - Creates campaign via API with standardized settings
+     - Auto-attaches warmed inboxes via POST /campaigns/{id}/attach-sender-emails
 ```
 
 ### GTMS Pilot exit criteria
@@ -176,9 +181,11 @@ Stap 2 — Messaging/ICP gate (alleen na clean infra):
 ```
 Google Maps Scraper → process-gmaps-batch → companies
 A-Leads API (find-contacts) → contacts (company_id FK)
-email-waterfall (TryKitt) → leads (email verified)
-validate-leads (Enrow) → email_validation_status per lead
-PlusVibe / EmailBison syncs → campaigns + leads (status updates)
+email-waterfall (TryKitt) → contacts (email verified) + DNC check
+validate-leads (Enrow) → contacts (email_validation_status)
+emailbison-pusher → EmailBison campaigns + leads junction
+EmailBison syncs → campaigns + email_inboxes (status updates)
+webhook-emailbison → email_threads + contacts + DNC entities
 Cal.com / GHL webhooks → meetings → opportunities
 Slack → notificaties (Block Kit, per client channel)
 ```
@@ -190,7 +197,7 @@ Slack → notificaties (Block Kit, per client channel)
 ```
 Sourcing:        A-Leads API (aleads.py + find-contacts edge fn)
 Verification:    TryKitt (email-waterfall) + Enrow (validate-leads)
-Sending:         PlusVibe (primair), EmailBison (backup)
+Sending:         EmailBison (primair) — PlusVibe gearchiveerd
 Calendar:        Cal.com + GoHighLevel
 Database:        Supabase (PostgreSQL, West EU)
 Dashboard:       Next.js (Vercel)
