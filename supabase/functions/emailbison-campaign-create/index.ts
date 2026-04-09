@@ -19,6 +19,11 @@ const corsHeaders = {
  * - Plain text: enabled
  * - Unsubscribe link: disabled
  * - Prioritize followups: enabled
+ *
+ * Sequence Variants (A/B Testing):
+ * - Use variant: true + variant_from_step_id to create A/B variants
+ * - All variants must reference the parent step ID
+ * - API uses v1.1 endpoints for proper variant support
  */
 
 interface CampaignRequest {
@@ -31,6 +36,10 @@ interface CampaignRequest {
   mode?: 'review' | 'immediate'
   min_warmup_score?: number
   cell_id?: string
+  /** Skip sequence creation if already created via API */
+  skip_sequence_creation?: boolean
+  /** Pre-existing Email Bison campaign ID to link to */
+  emailbison_campaign_id?: string
 }
 
 /** Sequence step for Email Bison */
@@ -41,6 +50,8 @@ interface SequenceStep {
   wait_in_days: number
   variant: boolean
   thread_reply: boolean
+  /** For variants: ID of parent step this is a variant of */
+  variant_from_step_id?: number
 }
 
 const DEFAULT_SETTINGS = {
@@ -79,6 +90,8 @@ serve(async (req) => {
       mode = 'review',
       min_warmup_score = 80,
       cell_id,
+      skip_sequence_creation = false,
+      emailbison_campaign_id: existingCampaignId,
     } = body
 
     // Validate required fields
@@ -184,38 +197,42 @@ serve(async (req) => {
       )
     }
 
-    // Create campaign in Email Bison
-    // Step 1: Create campaign with basic settings
-    const ebPayload = {
-      name: campaign_name,
-      max_emails_per_day: DEFAULT_SETTINGS.max_emails_per_day,
-      max_new_leads_per_day: DEFAULT_SETTINGS.max_new_sequence_starts,
-      plain_text: DEFAULT_SETTINGS.send_as_plain_text,
-      track_opens: DEFAULT_SETTINGS.track_opens,
-      unsubscribe_link: DEFAULT_SETTINGS.unsubscribe_link,
-      include_auto_replies_in_stats: DEFAULT_SETTINGS.include_auto_replies_in_stats,
-      sequence_prioritization: DEFAULT_SETTINGS.prioritize_followups ? 'followups' : 'new_leads',
-      ...(sequence_id && { sequence_id }),
-    }
-
-    const ebResponse = await fetch('https://mail.scaleyourleads.com/api/campaigns', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(ebPayload),
-    })
-
-    if (!ebResponse.ok) {
-      const errorText = await ebResponse.text()
-      throw new Error(`Email Bison API error: ${ebResponse.status} ${errorText}`)
-    }
-
-    const ebResult = await ebResponse.json()
-    const ebCampaignId = ebResult.data?.id || ebResult.id
+    // Create or use existing campaign in Email Bison
+    let ebCampaignId = existingCampaignId ? parseInt(existingCampaignId) : null
     const warnings: string[] = []
+
+    if (!ebCampaignId) {
+      // Step 1: Create campaign with basic settings
+      const ebPayload = {
+        name: campaign_name,
+        max_emails_per_day: DEFAULT_SETTINGS.max_emails_per_day,
+        max_new_leads_per_day: DEFAULT_SETTINGS.max_new_sequence_starts,
+        plain_text: DEFAULT_SETTINGS.send_as_plain_text,
+        track_opens: DEFAULT_SETTINGS.track_opens,
+        unsubscribe_link: DEFAULT_SETTINGS.unsubscribe_link,
+        include_auto_replies_in_stats: DEFAULT_SETTINGS.include_auto_replies_in_stats,
+        sequence_prioritization: DEFAULT_SETTINGS.prioritize_followups ? 'followups' : 'new_leads',
+        ...(sequence_id && { sequence_id }),
+      }
+
+      const ebResponse = await fetch('https://mail.scaleyourleads.com/api/campaigns', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(ebPayload),
+      })
+
+      if (!ebResponse.ok) {
+        const errorText = await ebResponse.text()
+        throw new Error(`Email Bison API error: ${ebResponse.status} ${errorText}`)
+      }
+
+      const ebResult = await ebResponse.json()
+      ebCampaignId = ebResult.data?.id || ebResult.id
+    }
 
     // Step 2: Update campaign settings via PATCH /update
     // Note: POST /campaigns ignores most settings, PATCH /update applies them correctly
@@ -279,42 +296,126 @@ serve(async (req) => {
     }
 
     // Step 4: Create sequence if steps provided
-    let sequenceResult: { success: boolean; title?: string; steps_count?: number; error?: string } = { success: false }
+    // Uses v1.1 API for proper variant support (A/B testing)
+    let sequenceResult: { success: boolean; title?: string; steps_count?: number; sequence_id?: number; error?: string } = { success: false }
 
-    if (sequence_steps && sequence_steps.length > 0) {
+    if (sequence_steps && sequence_steps.length > 0 && !skip_sequence_creation) {
       try {
-        const seqPayload = {
-          title: campaign_name,
-          sequence_steps: sequence_steps,
-        }
+        // Use v1.1 API for proper variant support
+        // First create the main step (non-variant)
+        const mainSteps = sequence_steps.filter(s => !s.variant)
+        const variantSteps = sequence_steps.filter(s => s.variant)
 
-        const seqResponse = await fetch(
-          `https://mail.scaleyourleads.com/api/campaigns/${ebCampaignId}/sequence-steps`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(seqPayload),
-          }
-        )
-
-        if (seqResponse.ok) {
-          sequenceResult = {
-            success: true,
-            title: campaign_name,
-            steps_count: sequence_steps.length,
-          }
+        if (mainSteps.length === 0) {
+          warnings.push('No main step (variant: false) found. Sequences must have at least one main step.')
         } else {
-          const errorText = await seqResponse.text()
-          sequenceResult = { success: false, error: errorText }
-          warnings.push(`Failed to create sequence: ${errorText}`)
+          // Create initial sequence with main steps only
+          const initialPayload = {
+            title: campaign_name,
+            sequence_steps: mainSteps.map(s => ({
+              email_subject: s.email_subject,
+              order: s.order,
+              email_body: s.email_body,
+              wait_in_days: s.wait_in_days,
+              variant: false,
+              thread_reply: s.thread_reply,
+            })),
+          }
+
+          const seqResponse = await fetch(
+            `https://mail.scaleyourleads.com/api/campaigns/v1.1/${ebCampaignId}/sequence-steps`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(initialPayload),
+            }
+          )
+
+          if (seqResponse.ok) {
+            const seqData = await seqResponse.json()
+            const createdSequenceId = seqData.data?.id
+            const createdSteps = seqData.data?.sequence_steps || []
+
+            // Map step orders to IDs for variant references
+            const stepIdMap = new Map<number, number>()
+            for (const step of createdSteps) {
+              stepIdMap.set(step.order, step.id)
+            }
+
+            // Update sequence with variants if any
+            if (variantSteps.length > 0 && createdSequenceId) {
+              const updatePayload = {
+                title: campaign_name,
+                sequence_steps: [
+                  ...createdSteps.map((s: any) => ({
+                    id: s.id,
+                    email_subject: s.email_subject,
+                    order: s.order,
+                    email_body: s.email_body,
+                    wait_in_days: s.wait_in_days,
+                    variant: false,
+                    thread_reply: s.thread_reply,
+                  })),
+                  ...variantSteps.map(s => {
+                    // Find parent step ID based on variant_from_step_id or default to first step
+                    const parentId = s.variant_from_step_id || stepIdMap.get(1) || createdSteps[0]?.id
+                    return {
+                      email_subject: s.email_subject,
+                      order: s.order,
+                      email_body: s.email_body,
+                      wait_in_days: s.wait_in_days,
+                      variant: true,
+                      variant_from_step_id: parentId,
+                      thread_reply: s.thread_reply,
+                    }
+                  }),
+                ],
+              }
+
+              const updateResponse = await fetch(
+                `https://mail.scaleyourleads.com/api/campaigns/v1.1/sequence-steps/${createdSequenceId}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(updatePayload),
+                }
+              )
+
+              if (!updateResponse.ok) {
+                const errorText = await updateResponse.text()
+                warnings.push(`Failed to add variants: ${errorText}`)
+              }
+            }
+
+            sequenceResult = {
+              success: true,
+              title: campaign_name,
+              steps_count: sequence_steps.length,
+              sequence_id: createdSequenceId,
+            }
+          } else {
+            const errorText = await seqResponse.text()
+            sequenceResult = { success: false, error: errorText }
+            warnings.push(`Failed to create sequence: ${errorText}`)
+          }
         }
       } catch (e) {
         const errorMsg = (e as Error).message
         sequenceResult = { success: false, error: errorMsg }
         warnings.push(`Error creating sequence: ${errorMsg}`)
+      }
+    } else if (skip_sequence_creation && sequence_steps) {
+      sequenceResult = {
+        success: true,
+        title: campaign_name,
+        steps_count: sequence_steps.length,
+        sequence_id: parseInt(sequence_id || '0') || undefined,
       }
     }
 
