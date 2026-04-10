@@ -121,23 +121,15 @@ Reverse-engineered uit SECX: 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAA
 
 ---
 
-## Sprint 4 — NRO en ELITS live
+## Sprint 4 — Reporting & Intelligence
 
-**Doel**: Eerste externe clients door de volledige pipeline.
-
-Volgorde per client: strategy synthesis → gate → client approval → infra + data parallel → cells → pilot copy → H1 → F1 → CTA1 → scale/kill
-
----
-
-## Sprint 5 — Reporting & Intelligence
-
-**Pas bouwen als sprint 2-4 bewezen zijn.**
+**Pas bouwen als sprint 2-3 bewezen zijn.**
 
 ```
 performance-analyzer     Na eerste H1 run met minimum sample
-daily-digest             Na NRO/ELITS live (2+ clients actief)
+daily-digest             Na 2+ clients actief in pipeline
 copy-generator-v2        Na icp-segment-builder approved (Cold Email v2 rubric)
-campaign-optimizer       Na 4+ weken data NRO/ELITS
+campaign-optimizer       Na 4+ weken data
 client-report-generator  Na optimizer live
 ```
 
