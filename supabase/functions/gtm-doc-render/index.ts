@@ -273,6 +273,21 @@ function buildInternalDoc(
     lines.push(``)
   }
 
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`INTERNAL REVIEW — SCORING (100 pts, ≥80 = APPROVE)`)
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`[ ] ICP specifiek genoeg?          (0-20 pts)  ___`)
+  lines.push(`[ ] Pijn-propositie scherp?        (0-20 pts)  ___`)
+  lines.push(`[ ] Proof assets overtuigend?      (0-20 pts)  ___`)
+  lines.push(`[ ] Entry offer realistisch?       (0-20 pts)  ___`)
+  lines.push(`[ ] Messaging richting duidelijk?  (0-20 pts)  ___`)
+  lines.push(``)
+  lines.push(`Score:    ___/100`)
+  lines.push(`Feedback: ___`)
+  lines.push(``)
+  lines.push(`Approve: POST /functions/v1/gtm-approve { "client_id": "<id>", "action": "internal_approve", "score": <X>, "feedback": "..." }`)
+  lines.push(`Reject:  POST /functions/v1/gtm-approve { "client_id": "<id>", "action": "internal_reject", "feedback": "..." }`)
+
   return lines.join('\n')
 }
 
@@ -280,10 +295,70 @@ function buildExternalDoc(
   clientName: string,
   synthesis: Record<string, unknown>
 ): string {
-  const filtered = { ...synthesis }
-  delete filtered.risks_and_assumptions
-  delete filtered.internal_notes
-  return buildInternalDoc(clientName, filtered)
+  const s = synthesis
+  const lines: string[] = []
+
+  lines.push(`GTM STRATEGIE — ${clientName.toUpperCase()}`)
+  lines.push(``)
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`WAT WE ZIEN`)
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(String(s.company_thesis || ''))
+  lines.push(``)
+
+  const focus = (s.recommended_initial_focus as Record<string, string>) ?? {}
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`AANBEVOLEN STARTPUNT`)
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`Oplossing: ${focus.solution || ''}`)
+  lines.push(`Doelgroep: ${focus.icp || ''}`)
+  lines.push(`Persona:   ${focus.persona || ''}`)
+  lines.push(`Waarom:    ${focus.rationale || ''}`)
+  lines.push(``)
+
+  const icpSegments = (s.icp_segments as Array<Record<string, unknown>>) ?? []
+  if (icpSegments.length > 0) {
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    lines.push(`DOELGROEPEN`)
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    icpSegments.forEach(seg => {
+      lines.push(`${seg.name} — ${seg.geo}, ${seg.employee_range} medewerkers`)
+      lines.push(`  Sectoren: ${(seg.industries as string[] ?? []).join(', ')}`)
+      lines.push(``)
+    })
+  }
+
+  const proofAssets = (s.proof_assets as Array<Record<string, unknown>>) ?? []
+  if (proofAssets.length > 0) {
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    lines.push(`WAAROM HET WERKT`)
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    proofAssets.forEach(p => {
+      lines.push(`${p.description}`)
+    })
+    lines.push(``)
+  }
+
+  const entryOffers = (s.entry_offers as Array<Record<string, unknown>>) ?? []
+  if (entryOffers.length > 0) {
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    lines.push(`AANPAK & AANBOD`)
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    entryOffers.forEach(offer => {
+      lines.push(`${offer.name}: ${offer.description}`)
+      if (offer.conversion_hook) lines.push(`Hook: ${offer.conversion_hook}`)
+      lines.push(``)
+    })
+  }
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`VOLGENDE STAP`)
+  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+  lines.push(`Heeft u opmerkingen of aanpassingen op de strategie? Laat het ons weten.`)
+  lines.push(`Na uw goedkeuring starten we direct met de data & campagne opbouw.`)
+
+  return lines.join('\n')
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────────
@@ -478,13 +553,11 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-    if (mode === 'internal') {
-      fetch(`${supabaseUrl}/functions/v1/gtm-gate-notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
-        body: JSON.stringify({ client_id, event: 'internal_review' }),
-      }).catch(err => console.error(`[${requestId}] gtm-gate-notify failed:`, err.message))
-    }
+    fetch(`${supabaseUrl}/functions/v1/gtm-gate-notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+      body: JSON.stringify({ client_id, event: mode === 'internal' ? 'internal_review' : 'external_review' }),
+    }).catch(err => console.error(`[${requestId}] gtm-gate-notify failed:`, err.message))
 
     console.log(`[${requestId}] Doc render complete: mode=${mode} client=${client_id} doc=${docUrl ?? 'skipped'}`)
 

@@ -219,7 +219,13 @@ Schema:
   "generated_at": "ISO timestamp"
 }`
 
-function buildUserPrompt(synthesis: Record<string, unknown>): string {
+interface SourcingSegment {
+  name: string
+  companies: number
+  contacts: number
+}
+
+function buildUserPrompt(synthesis: Record<string, unknown>, sourcingSegments?: SourcingSegment[]): string {
   const focus = (synthesis.recommended_initial_focus as Record<string, string>) ?? {}
   const icpSegments = (synthesis.icp_segments as Array<Record<string, unknown>>) ?? []
   const personas = (synthesis.buyer_personas as Array<Record<string, unknown>>) ?? []
@@ -227,6 +233,10 @@ function buildUserPrompt(synthesis: Record<string, unknown>): string {
   const messaging = (synthesis.messaging_direction as Record<string, string>) ?? {}
   const proofAssets = (synthesis.proof_assets as Array<Record<string, unknown>>) ?? []
   const entryOffers = (synthesis.entry_offers as Array<Record<string, unknown>>) ?? []
+
+  const sourcingContext = sourcingSegments && sourcingSegments.length > 0
+    ? `\n## SOURCING CONTEXT (verified real audience — use this to ground your messaging)\n${sourcingSegments.map(s => `• ${s.name}: ${s.companies} bedrijven, ${s.contacts} contacten gevonden`).join('\n')}\n\nSchrijf messaging die past bij deze specifieke mensen en volumes — niet generiek.\n`
+    : ''
 
   return `
 ## COMPANY THESIS
@@ -246,6 +256,7 @@ ${personas.map(p => `${p.title}\n  Pains: ${(p.pain_points as string[] ?? []).jo
 
 ## ICP × PERSONA COMBINATIONS (priority order)
 ${combos.map(c => `${c.icp} × ${c.persona} [${c.priority}] — ${c.rationale}`).join('\n')}
+${sourcingContext}
 
 ## MESSAGING DIRECTION (from strategy)
 Core angle: ${messaging.core_angle || ''}
@@ -455,9 +466,13 @@ serve(async (req) => {
     const isRevision = messagingApproval.status === 'rejected'
     const currentAttempts = (messagingApproval.attempts as number) ?? 0
 
-    console.log(`[${requestId}] Generating messaging doc for client ${client_id} (attempt ${currentAttempts + 1})`)
+    // Read sourcing context from previous sourcing step
+    const sourcingReview = (wm.sourcing_review as Record<string, unknown>) ?? {}
+    const sourcingSegments = (sourcingReview.segments as SourcingSegment[]) ?? []
 
-    const userPrompt = buildUserPrompt(synthesis)
+    console.log(`[${requestId}] Generating messaging doc for client ${client_id} (attempt ${currentAttempts + 1}, ${sourcingSegments.length} sourcing segments available)`)
+
+    const userPrompt = buildUserPrompt(synthesis, sourcingSegments)
 
     const combinedPrompt = `${SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`
 
