@@ -53,7 +53,7 @@ serve(async (req) => {
     const { data: clients, error: clientsError } = await supabase
       .from('clients')
       .select('id, name, client_code, slack_channel_id')
-      .eq('client_stage', 'Active')
+      .in('status', ['running', 'scaling'])
       .order('client_code')
 
     if (clientsError) throw new Error(`Failed to fetch clients: ${clientsError.message}`)

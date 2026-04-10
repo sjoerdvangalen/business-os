@@ -187,7 +187,7 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 
 ### Core — Sync & Operations
 - `clients` **[active — 19 rows]** — Hub table, all data connects here via client_id
-  - `onboarding_form` JSONB, `research` JSONB
+  - `onboarding_form` JSONB
   - `status` — client_lifecycle enum (onboarding/running/scaling/paused/offboarding/churned)
   - `stage` — client_stage_type enum (intake/internal_approval/.../h1/f1/cta1/scaling)
   - `approval_status` — strategy_approval enum (draft/synthesized/.../external_approved)
@@ -221,7 +221,7 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 
 - `gtm_strategies` **[new — recreated 2026-04-04]** — Strategy container (per client, versioned)
   - JSONB: `solutions`, `pains`, `icp_segments`, `buyer_personas`, `entry_offers`, `proof_assets`, `messaging_direction`, `research_context`, `onboarding_context`
-  - Status: draft → synthesized → gate_review → gate_approved → client_sent → client_iteration → client_approved
+  - Status: draft → synthesized → internal_review → internal_approved → external_sent → external_iteration → external_approved
   - Contains strategy-level decisions. Does NOT contain hooks, subject lines, sample emails, CTA variants.
 
 - `campaign_cells` **[new — extended 2026-04-04]** — Execution/test unit (per strategy, per combination)

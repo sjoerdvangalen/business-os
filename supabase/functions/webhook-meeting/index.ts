@@ -41,7 +41,7 @@ serve(async (req: Request) => {
     // STEP 2: Lookup client by calendar webhook token
     const { data: client, error: clientError } = await supabase
       .from('clients')
-      .select('id, name, client_code, slack_channel_id, calendar_type, calendar_webhook_count')
+      .select('id, name, client_code, slack_channel_id, calendar_type')
       .eq('calendar_webhook_token', token)
       .single()
 
@@ -51,10 +51,9 @@ serve(async (req: Request) => {
       })
     }
 
-    // Update stats (fire-and-forget)
+    // Update last webhook timestamp (fire-and-forget)
     supabase.from('clients').update({
-      calendar_last_webhook: new Date().toISOString(),
-      calendar_webhook_count: (client.calendar_webhook_count || 0) + 1,
+      updated_at: new Date().toISOString(),
     }).eq('id', client.id).then(() => {})
 
     const clientCode = client.client_code || 'UNKNOWN'

@@ -89,9 +89,9 @@ Alle skills schrijven naar het canonieke model: `gtm_strategies` (JSONB containe
 ### GTMS Pilot exit criteria
 
 Loop is bewezen als:
-- 1+ strategy gate_approved
+- 1+ strategy internal_approved
 - 2+ cells met snapshot
-- 2+ campaigns in PlusVibe gesynchroniseerd
+- 2+ campaigns in EmailBison gesynchroniseerd
 - 50+ leads verified geupload
 - 1+ delivered volume per cell
 - 1+ reply geclassificeerd + needs_review afgehandeld
@@ -103,7 +103,7 @@ Reverse-engineered uit SECX: 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAA
 
 **Cell naming**: `CLIENT|LANG|Solution|Vertical|Persona|Region` (e.g. SECX|EN|Route|SAAS|CX|NL)
 
-**4-layer architectuur**: Input (client research) → Template Engine (persona/vertical templates) → Generation (24 cells auto) → Execution (A-Leads + TryKitt + PlusVibe)
+**4-layer architectuur**: Input (client research) → Template Engine (persona/vertical templates) → Generation (24 cells auto) → Execution (A-Leads + TryKitt + EmailBison)
 
 **Test sequence**: H1 (300 delivered/variant) → F1 (500 delivered/variant) → CTA1 (300 delivered/variant) → Scale/Kill
 
