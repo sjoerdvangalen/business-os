@@ -462,6 +462,7 @@ serve(async (req) => {
       provider_campaign_id: String(ebCampaignId),
       status: 'active',
       health_status: 'UNKNOWN',
+      cell_id: cell_id || null,
     }
 
     const { data: campaignRecord, error: campaignError } = await supabase

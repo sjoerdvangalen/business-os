@@ -167,12 +167,22 @@ async function handleCreated(
   }
   await updatePlusVibeByDomain(supabase, n.attendeeEmail)
 
-  // Update contact
+  // Update contact + DNC Level 3 (meeting_booked = client-scoped suppression)
   if (contact) {
     await supabase.from('contacts').update({
       contact_status: 'meeting_booked',
       meetings_booked_count: 1,
     }).eq('id', contact.id)
+
+    await supabase.from('dnc_entities').upsert({
+      client_id: client?.id || null,
+      entity_type: 'contact_id',
+      entity_value: contact.id,
+      reason: 'meeting_booked',
+      source: 'webhook-meeting',
+      source_campaign_id: contact?.last_campaign_id || null,
+      source_contact_id: contact.id,
+    }, { onConflict: 'client_id,entity_type,entity_value', ignoreDuplicates: false }).catch(() => {})
   }
 
   // Find or create opportunity

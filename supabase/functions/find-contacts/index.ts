@@ -9,8 +9,15 @@ const corsHeaders = {
 /**
  * Find Contacts — A-Leads API contact finder
  *
- * Input: { company_id: string, max_results?: number }
- * Output: { contacts_found: number, contacts: Contact[] }
+ * Input:
+ *   {
+ *     company_id?: string,
+ *     company_ids?: string[],
+ *     max_results?: number,
+ *     client_id?: string,
+ *     cell_id?: string
+ *   }
+ * Output: { companies_processed: number, contacts_found: number, contacts_created: number, leads_created: number }
  */
 
 const ALEADS_API_KEY = Deno.env.get('ALEADS_API_KEY');
@@ -67,120 +74,153 @@ serve(async (req) => {
   }
 
   try {
-    const { company_id, max_results = 3 } = await req.json();
+    const body = await req.json();
+    const {
+      company_id,
+      company_ids,
+      max_results = 3,
+      client_id,
+      cell_id,
+    } = body;
 
-    if (!company_id) {
+    const targetCompanyIds: string[] = company_ids || (company_id ? [company_id] : []);
+
+    if (targetCompanyIds.length === 0) {
       return new Response(
-        JSON.stringify({ error: 'company_id is required' }),
+        JSON.stringify({ error: 'company_id or company_ids is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Init Supabase
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Haal business op
-    const { data: company, error: companyError } = await supabase
+    // Haal companies op
+    const { data: companies, error: companiesError } = await supabase
       .from('companies')
-      .select('*')
-      .eq('id', company_id)
-      .single();
+      .select('id, name, domain')
+      .in('id', targetCompanyIds);
 
-    if (companyError || !company) {
+    if (companiesError || !companies) {
       return new Response(
-        JSON.stringify({ error: 'Business not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Failed to fetch companies' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (!company.domain) {
-      return new Response(
-        JSON.stringify({ error: 'Company has no domain' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    let totalContactsFound = 0;
+    let totalContactsCreated = 0;
+    let totalLeadsCreated = 0;
+    const processedCompanies: string[] = [];
+    const createdContactIds: string[] = [];
 
-    // Check of we al contacts hebben voor deze business
-    const { data: existingContacts } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('source_id', company_id)
-      .limit(1);
+    for (const company of companies) {
+      if (!company.domain) continue;
+      processedCompanies.push(company.id);
 
-    if (existingContacts && existingContacts.length > 0) {
-      return new Response(
-        JSON.stringify({ message: 'Contacts already exist for this company', skipped: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      // Check of we al contacts hebben voor deze business
+      const { data: existingContacts } = await supabase
+        .from('contacts')
+        .select('id, email, linkedin_url')
+        .eq('source_id', company.id);
 
-    // Zoek contacts via A-Leads
-    const contacts = await searchContacts(company.domain, company.name, max_results);
+      const contacts = await searchContacts(company.domain, company.name, max_results);
+      totalContactsFound += contacts.length;
 
-    let created = 0;
+      for (const contact of contacts) {
+        // Check of contact al bestaat (op LinkedIn URL of email)
+        const duplicate = (existingContacts ?? []).find((ec: any) =>
+          (contact.linkedin_url && ec.linkedin_url === contact.linkedin_url) ||
+          (contact.email && ec.email === contact.email)
+        );
 
-    for (const contact of contacts) {
-      // Check of contact al bestaat (op LinkedIn URL)
-      if (contact.linkedin_url) {
-        const { data: existing } = await supabase
+        if (duplicate) {
+          // Link existing contact to cell if needed
+          if (cell_id && client_id) {
+            const { error: leadErr } = await supabase
+              .from('leads')
+              .upsert({
+                contact_id: duplicate.id,
+                client_id,
+                cell_id,
+                status: 'sourced',
+                added_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'contact_id,cell_id' });
+            if (!leadErr) totalLeadsCreated++;
+          }
+          continue;
+        }
+
+        // Maak contact aan
+        const { data: newContact, error: insertError } = await supabase
           .from('contacts')
+          .insert({
+            company_id: company.id,
+            client_id: client_id || null,
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            email: contact.email || null,
+            email_verified: false,
+            linkedin_url: contact.linkedin_url || null,
+            title: contact.title || null,
+            department: contact.seniority || null,
+            source: 'a-leads',
+            source_id: company.id,
+            email_waterfall_status: contact.email ? 'existing' : 'pending',
+            enrichment_data: {
+              confidence_score: contact.confidence_score,
+              seniority: contact.seniority,
+              department: contact.department,
+              source: 'a-leads',
+              found_at: new Date().toISOString(),
+            }
+          })
           .select('id')
-          .eq('linkedin_url', contact.linkedin_url)
-          .maybeSingle();
+          .single();
 
-        if (existing) continue;
+        if (!insertError && newContact) {
+          totalContactsCreated++;
+          createdContactIds.push(newContact.id);
+
+          // Maak lead record aan voor cell-koppeling
+          if (cell_id && client_id) {
+            const { error: leadErr } = await supabase
+              .from('leads')
+              .insert({
+                contact_id: newContact.id,
+                client_id,
+                cell_id,
+                status: 'sourced',
+                added_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            if (!leadErr) totalLeadsCreated++;
+          }
+        }
       }
 
-      // Maak contact aan
-      const { error: insertError } = await supabase
-        .from('contacts')
-        .insert({
-          company_id: company.id,
-          first_name: contact.first_name,
-          last_name: contact.last_name,
-          email: contact.email || null,
-          email_verified: false,
-          linkedin_url: contact.linkedin_url || null,
-          title: contact.title || null,
-          department: contact.seniority || null,
-          source: 'a-leads',
-          source_id: company_id,
-          email_waterfall_status: contact.email ? 'existing' : 'pending',
-          enrichment_data: {
-            confidence_score: contact.confidence_score,
-            seniority: contact.seniority,
-            department: contact.department,
-            source: 'a-leads',
-            found_at: new Date().toISOString(),
-          }
-        });
-
-      if (!insertError) {
-        created++;
+      // Rate limiting tussen companies
+      if (companies.length > 1) {
+        await new Promise(r => setTimeout(r, 200));
       }
     }
 
     // Update business: laatste enrichment timestamp
-    if (created > 0) {
+    if (processedCompanies.length > 0) {
       await supabase
         .from('companies')
         .update({ last_enriched_at: new Date().toISOString() })
-        .eq('id', company_id);
+        .in('id', processedCompanies);
     }
 
     return new Response(
       JSON.stringify({
-        company_id,
-        contacts_found: contacts.length,
-        contacts_created: created,
-        contacts: contacts.map(c => ({
-          name: `${c.first_name} ${c.last_name}`,
-          title: c.title,
-          email: c.email ? '✓' : '✗',
-          linkedin: c.linkedin_url ? '✓' : '✗',
-        }))
+        companies_processed: processedCompanies.length,
+        contacts_found: totalContactsFound,
+        contacts_created: totalContactsCreated,
+        leads_created: totalLeadsCreated,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -188,7 +228,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Find contacts error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ error: 'Internal server error', details: (error as Error).message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
