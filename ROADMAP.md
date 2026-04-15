@@ -5,6 +5,48 @@
 
 ---
 
+## CORE MODEL — EXECUTION BLUEPRINT V2 (APRIL 2026)
+
+De pipeline produceert **geen** "strategie + losse campagnes".
+
+De pipeline produceert:
+- Volledige `persona × vertical × solution` matrix per client
+- Skeleton `campaign_cells` (na synthesis + external approval)
+- Sourcing feasibility per cell (vóór messaging)
+- Formula-driven messaging framework per cell (ERIC + HUIDIG, na sourcing)
+- Enriched, execution-ready `campaign_cells` in DB
+- H1/F1/CTA1 test loop per cell — winners bepaald door data
+
+### Authoritative testdiscipline (HIER, niet in AI-output)
+
+```
+H1:   300 delivered/variant  (hook frames — welk frame opent deuren)
+F1:   500 delivered/variant  (email frameworks — welke structuur converteert)
+CTA1: 300 delivered/variant  (CTA types — welke actie werkt)
+```
+
+CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send`.
+
+### Write truth
+
+```
+gtm_strategies      = enige write target voor synthesis
+campaign_cells      = enige write target voor execution units
+clients.gtm_synthesis = DEPRECATED_READONLY
+```
+
+### Cell identity (4 dimensies)
+
+```
+solution_key + icp_key + vertical_key + persona_key
+icp_key    = ICP segment (firmographic profiel)
+vertical_key = sector (staffing / saas / financial / healthcare / manufacturing)
+```
+
+Geen priority op cells. Qualification_framework doet de filtering. Winners via pilotdata.
+
+---
+
 ## Systeem Visie
 
 Je bouwt 3 blokken die samenkomen in execution:
@@ -12,21 +54,23 @@ Je bouwt 3 blokken die samenkomen in execution:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  STRATEGY ENGINE                                        │
-│  Input → AI Synthesis → Gate (score ≥80) →             │
-│  Client Validation → approved_strategy                  │
+│  Input → AI Synthesis → Client Validation →             │
+│  approved_strategy (qualification_framework)             │
 └─────────────────────────────────────────────────────────┘
-         ↓ parallel zodra eerste ICP versie klaar
-┌────────────────────┐    ┌────────────────────────────────┐
-│  INFRA             │    │  DATA PIPELINE                 │
-│  Domains/Inboxes   │    │  Hard filter → A-Leads →       │
-│  Warmup tracking   │    │  AI scoring shortlist (≥65) →  │
-│  DNS (SPF/DKIM)    │    │  Contacts → Enrow verify       │
-└────────────────────┘    └────────────────────────────────┘
+         ↓ parallel zodra external_approved
+┌────────────────────┐    ┌────────────────────────────────────┐
+│  INFRA             │    │  DATA PIPELINE                     │
+│  Domains/Inboxes   │    │  execution-review-doc fase 1 →     │
+│  Warmup tracking   │    │  keyword_profiles (LLM) →          │
+│  DNS (SPF/DKIM)    │    │  sourcing_approve →                 │
+│                    │    │  A-Leads bulk (cookie-based) →      │
+│                    │    │  Contacts → email verificatie       │
+└────────────────────┘    └────────────────────────────────────┘
          ↓ convergeert
 ┌─────────────────────────────────────────────────────────┐
 │  EXECUTION                                              │
-│  Cells → Copy → H1 (300 del./variant) → F1 → CTA1     │
-│  Kill logic per cell, deliverability gate eerst         │
+│  Cells → ERIC+HUIDIG → H1 (300 del./variant) → F1 → CTA1│
+│  Kill logic per cell, deliverability gate eerst          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -42,9 +86,9 @@ Je bouwt 3 blokken die samenkomen in execution:
 - Campaign monitoring: health checks */15 min, domain checks dagelijks
 - RLS op alle tabellen, API keys in Supabase secrets
 - Database: 19 tabellen, 24k+ leads, 17k+ companies, 46k+ email threads
-- 28 actieve edge functions (zie CLAUDE.md voor volledige lijst)
+- 31 actieve edge functions (zie CLAUDE.md voor volledige lijst)
 - GTM orchestrator (Python): strategy synthesis, cell design, lead sourcing, Google Docs output
-- GTM pipeline: jotform → research → synthesis → doc render → approve → sourcing → campaign push
+- GTM pipeline V2: jotform → research → synthesis (gtm_strategies) → doc render → external_approve → [parallel] cell-seed + execution-review-doc (fase 1) → sourcing_approve → [parallel] A-Leads bulk + messaging (ERIC+HUIDIG) → cell-enrich → campaign push
 - Lead gen pipeline: GMaps scraper → A-Leads → TryKitt/Enrow → AI enrich → EmailBison
 - PlusVibe volledig gearchiveerd (sync + webhook functions in _archive/)
 
@@ -66,44 +110,48 @@ Je bouwt 3 blokken die samenkomen in execution:
 
 ---
 
-## Sprint 2 — GTM Skills + GTMS Pilot
+## Sprint 2 — GTM Pipeline V2 + GTMS Pilot
 
-**Doel**: Kern-loop bewijzen end-to-end. Niet breed, diep.
+**Doel**: Execution Blueprint pipeline bewijzen end-to-end. Niet breed, diep.
 
-### Skills (in volgorde, een voor een reviewen)
+### Pipeline status (edge functions)
 
-Alle skills schrijven naar het canonieke model: `gtm_strategies` (JSONB containers) + `campaign_cells`.
+Alle functies schrijven naar het canonieke model: `gtm_strategies` + `campaign_cells`.
 
 ```
-#1  gtm-strategy-synthesis     Input → AI → gtm_strategies (solutions, icp_segments, personas JSONB)
-#2  icp-segment-builder        Strategy → gtm_strategies.icp_segments met aleads_config v1 (JSON schema)
-#3  internal-gate-review       Score-based rubric (100 pts) → APPROVE ≥80 / REJECT
-#4  campaign-cell-designer     strategy → campaign_cells met immutable snapshot
-#5  lead-sourcing-builder      aleads_config → hard filter → shortlist → AI scoring ≥65
-#6  emailbison-campaign-create [DONE] campaign_cells → EmailBison → campaigns
-#7  emailbison-pusher          [DONE] validated contacts → EmailBison campaigns via 2-step API
-     - Creates campaign via API with standardized settings
-     - Auto-attaches warmed inboxes via POST /campaigns/{id}/attach-sender-emails
+#1  gtm-synthesis              [DONE v2]   Input → OpenAI → gtm_strategies (schema v2)
+#2  gtm-doc-render             [DONE v2]   gtm_strategies → Google Doc (internal) → external
+#3  gtm-campaign-cell-seed     [DONE]      campaign_matrix_seed → campaign_cells (skeleton) — op external_approve (parallel aan #4)
+#4  gtm-execution-review-doc   [DONE]      keyword profiles + A-Leads squirrel preview per ICP — op external_approve (parallel aan #3)
+                                           → fase 2 (messaging) appended door gtm-messaging-doc
+#5  gtm-aleads-source          [DONE]      A-Leads bulk sourcing per ICP-segment — op sourcing_approve (parallel aan #6)
+                                           Cookie-based auth (app.a-leads.co) — v1 Bearer API deprecated/broken
+#6  gtm-messaging-doc          [DONE v2]   Sourcing-approved cells → ERIC + HUIDIG frameworks — op sourcing_approve (parallel aan #5)
+#7  gtm-campaign-cell-enrich   [DONE]      messaging_output → campaign_cells.brief (status=ready) — op messaging_approve
+#8  gtm-campaign-push          [DONE]      ready cells → EmailBison campaigns + inbox attachment
+#9  emailbison-pusher          [DONE]      validated contacts → EmailBison campaigns via 2-step API
 ```
 
 ### GTMS Pilot exit criteria
 
 Loop is bewezen als:
-- 1+ strategy internal_approved
-- 2+ cells met snapshot
+- 1+ strategy in `gtm_strategies` met status external_approved
+- 5+ skeleton cells aangemaakt (status sourcing_pending of hoger)
+- 2+ cells enriched (status ready) met hook_frameworks in brief
 - 2+ campaigns in EmailBison gesynchroniseerd
-- 50+ leads verified geupload
+- 50+ leads verified geüpload
 - 1+ delivered volume per cell
 - 1+ reply geclassificeerd + needs_review afgehandeld
 - 1+ kill/iterate beslissing op echte data
 
-### GTM Automation Inzichten (uit SentioCX case)
+### GTM Blueprint Architectuur (uit SentioCX case)
 
-Reverse-engineered uit SECX: 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT/STF/MFG/GEN) = 24 cells.
+Benchmark: SECX → 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT/STF/MFG/GEN) = 24 cells.
 
-**Cell naming**: `CLIENT|LANG|Solution|Vertical|Persona|Region` (e.g. SECX|EN|Route|SAAS|CX|NL)
+**Cell identity**: `solution_key + icp_key + vertical_key + persona_key`
+**Cell naming**: `CLIENT|EN|solution-key|icp-key|vertical-key|persona-key|geo` (e.g. SECX|EN|routing|mid-market-saas-nl|saas|cx|NLBE)
 
-**4-layer architectuur**: Input (client research) → Template Engine (persona/vertical templates) → Generation (24 cells auto) → Execution (A-Leads + TryKitt + EmailBison)
+**Pipeline flow**: synthesis → skeleton cells → sourcing gate → ERIC+HUIDIG messaging → enrich cells → EmailBison
 
 **Test sequence**: H1 (300 delivered/variant) → F1 (500 delivered/variant) → CTA1 (300 delivered/variant) → Scale/Kill
 
@@ -172,10 +220,10 @@ Stap 2 — Messaging/ICP gate (alleen na clean infra):
 
 ```
 Google Maps Scraper → process-gmaps-batch → companies
-A-Leads API (find-contacts) → contacts (company_id FK)
-email-waterfall (TryKitt) → contacts (email verified) + DNC check
-validate-leads (Enrow) → contacts (email_validation_status)
-emailbison-pusher → EmailBison campaigns + leads junction
+gtm-aleads-source (cookie-based bulk, op sourcing_approve) → companies + contacts tables
+email-waterfall (OmniVerifier + TryKitt + Enrow fallback) → contacts (email verified + catchall flag) + DNC check
+validate-leads (Enrow bulk) → contacts (email_validation_status)
+emailbison-pusher (cell-scoped) → EmailBison campaigns + leads junction
 EmailBison syncs → campaigns + email_inboxes (status updates)
 webhook-emailbison → email_threads + contacts + DNC entities
 Cal.com / GHL webhooks → meetings → opportunities
@@ -187,7 +235,7 @@ Slack → notificaties (Block Kit, per client channel)
 ## Tooling
 
 ```
-Sourcing:        A-Leads API (aleads.py + find-contacts edge fn)
+Sourcing:        A-Leads cookie-based bulk (gtm-aleads-source) — find-contacts is legacy (broken v1 API)
 Verification:    TryKitt (email-waterfall) + Enrow (validate-leads)
 Sending:         EmailBison (primair) — PlusVibe gearchiveerd
 Calendar:        Cal.com + GoHighLevel

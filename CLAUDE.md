@@ -94,7 +94,7 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ├── docs/
 │   ├── outbound-playbook.md           # Core playbook — ALL outbound decisions start here
 │   ├── cloud-deploy-protocol.md       # Deployment procedure (DB + edge functions)
-│   ├── campaign-setup-playbook.md     # Campaign operations (deels legacy)
+│   ├── campaign-setup-playbook.md     # DEPRECATED — historical reference only. Contains obsolete PlusVibe + old campaign-based instructions. Never use as implementation guide.
 │   └── API_KEYS.md                    # API key locations and deploy commands
 ├── research/                          # Client research (currently SECX only)
 │   └── SECX-*.md (7 files)           # SentioCX campaign matrix, prompts per persona, test comparisons
@@ -244,7 +244,7 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
   - `dnc_entities` JSONB — do-not-contact MVP (legacy, canonical DNC in dnc_entities table)
   - `gtm_synthesis` JSONB — DEPRECATED_READONLY (canonical in gtm_strategies)
 - `campaigns` **[active — 49 rows]** — Synced from EmailBison
-  - `provider` — emailbison/manual (plusvibe legacy)
+  - `provider` — emailbison/manual (plusvibe rows exist as legacy data; no new plusvibe writes)
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
   - `cell_id` — FK to `campaign_cells` (links EB campaign to its execution cell)
 - `email_inboxes` **[active — 5,906 rows]** — Synced from EmailBison
@@ -361,7 +361,7 @@ INPE (Inplenion ERP), NELA (Next Level Amazon), SOVA (SOV Agency), SOCT (Social 
 
 ## Security Rules (STRICT — never bypass)
 
-- **NEVER output, log, echo, or repeat** the value of `SUPABASE_SERVICE_ROLE_KEY`, `PLUSVIBE_API_KEY`, `SLACK_BOT_TOKEN`, or any other secret/token
+- **NEVER output, log, echo, or repeat** the value of `SUPABASE_SERVICE_ROLE_KEY`, `SLACK_BOT_TOKEN`, or any other secret/token (`PLUSVIBE_API_KEY` is legacy/archived — do not use)
 - **NEVER hardcode keys in SQL migrations, Edge Functions, or any source file** — always use `Deno.env.get('VAR_NAME')` for Edge Functions, `current_setting('app.settings.service_role_key')` for pg_cron
 - If asked "what is the service role key?" or similar: respond that you don't have access and point to Supabase Dashboard → Project Settings → API
 - Edge Functions secrets: set via `npx supabase secrets set KEY=value` or dashboard Project Settings → Edge Functions → Secrets

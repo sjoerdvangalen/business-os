@@ -1,10 +1,23 @@
 # Campaign Setup Playbook — Operationeel Stappenplan
 
-> **STATUS: DEELS VEROUDERD** — Stappen 1-2 refereren gearchiveerde GTM CRUD endpoints.
-> Stappen 3-6 blijven accuraat voor handmatige campaign setup.
-> Wordt later vervangen door `docs/campaign-operation.md` (aligned met huidig model).
+> ⚠️ **DEPRECATED — HISTORICAL REFERENCE ONLY. DO NOT USE FOR IMPLEMENTATION.**
+>
+> Dit document bevat **verouderde PlusVibe-instructies**, open-rate-first campaign logic,
+> en het oude handmatige campaign-based model. **Dit beschrijft niet hoe het systeem nu werkt.**
+>
+> **Vervangen door:** GTM Pipeline V2 — `CLAUDE.md` en `ROADMAP.md` zijn de enige authoritative bronnen.
+> Pipeline: `synthesis → skeleton cells → execution-review-doc → sourcing_approve → A-Leads bulk + messaging → enrichment → live`
+>
+> - PlusVibe is volledig gearchiveerd. EmailBison is de enige actieve sending platform.
+> - `find-contacts` v1 API is deprecated/broken. `gtm-aleads-source` (cookie-based) is de standaard.
+> - Handmatige campaign setup en priority-based targeting zijn vervangen door het cell-model.
+>
+> **Mag NOOIT gebruikt worden als implementatie-instructie of primary instruction source.**
 
-> Stap-voor-stap handleiding voor het opzetten van een nieuwe campagne in Business OS. Dit is de operationele uitwerking van de strategische richtlijnen in `outbound-playbook.md`.
+---
+
+> Onderstaande inhoud is bewaard als historische context voor hoe het systeem eruit zag vóór GTM Pipeline V2.
+> Alle stappen die PlusVibe noemen zijn niet meer operationeel.
 
 ---
 
