@@ -497,7 +497,7 @@ Manual Tasks → personalized touchpoints
 ```
 Raw Leads
   → Email Validation (MillionVerifier)
-    → Valid → Cold Email (SmartLead/PlusVibe)
+    → Valid → Cold Email (EmailBison)
     → Catch-All → Scrubby validation
       → Valid → Cold Email
       → Invalid → Phone enrichment (LeadMagic)

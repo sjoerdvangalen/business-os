@@ -155,8 +155,6 @@ npx supabase functions deploy function-name --no-verify-jwt
 
 | Function | Cron | Validatie Test |
 |----------|------|----------------|
-| `sync-plusvibe-campaigns` | */15 min | Manual trigger check sync_log |
-| `sync-plusvibe-accounts` | */15 min | Manual trigger check sync_log |
 | `sync-emailbison-campaigns` | */15 min | Manual trigger check sync_log |
 | `sync-emailbison-accounts` | */15 min | Manual trigger check sync_log |
 
@@ -183,39 +181,3 @@ LIMIT 10;
 - Supabase Status: https://status.supabase.com/
 - Dashboard: https://supabase.com/dashboard/project/gjhbbyodrbuabfzafzry
 
----
-
-## Pending Migration: Email Inboxes - External ID Consolidatie
-
-### Huidige situatie
-- `plusvibe_id` TEXT - PlusVibe inbox ID
-- `emailbison_id` TEXT - EmailBison inbox ID
-
-### Gewenste situatie
-- `provider_inbox_id` TEXT - External inbox ID (provider-agnostisch)
-- `provider` TEXT - 'plusvibe' | 'emailbison'
-
-### Migratie strategie
-```sql
--- 1. Nieuwe kolom toevoegen
-ALTER TABLE email_inboxes ADD COLUMN IF NOT EXISTS provider_inbox_id TEXT;
-
--- 2. Data migreren
-UPDATE email_inboxes SET provider_inbox_id = plusvibe_id WHERE provider = 'plusvibe' AND plusvibe_id IS NOT NULL;
-UPDATE email_inboxes SET provider_inbox_id = emailbison_id WHERE provider = 'emailbison' AND emailbison_id IS NOT NULL;
-
--- 3. Index aanpassen
-CREATE INDEX idx_email_inboxes_provider_inbox ON email_inboxes(provider, provider_inbox_id);
-DROP INDEX IF EXISTS idx_email_inboxes_plusvibe;
-DROP INDEX IF EXISTS idx_email_inboxes_emailbison_id;
-
--- 4. Oude kolommen verwijderen
-ALTER TABLE email_inboxes DROP COLUMN IF EXISTS plusvibe_id;
-ALTER TABLE email_inboxes DROP COLUMN IF EXISTS emailbison_id;
-```
-
-### Functies aanpassen na migratie
-- `sync-plusvibe-accounts` - `plusvibe_id` → `provider_inbox_id`
-- `sync-emailbison-accounts` - `emailbison_id` → `provider_inbox_id`
-- `webhook-receiver` - inbox lookup via `provider_inbox_id`
-- `webhook-emailbison` - inbox lookup via `provider_inbox_id`

@@ -6,9 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const PLUSVIBE_API_KEY = Deno.env.get('PLUSVIBE_API_KEY') || ''
-const PLUSVIBE_WORKSPACE = Deno.env.get('PLUSVIBE_WORKSPACE_ID') || '68f8e5d7e13f67d591c4f0a8'
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -141,32 +138,6 @@ async function handleCreated(
     contact = data
   }
 
-  // Update PlusVibe — source_id is de plusvibe_lead_id, last_campaign_id geeft de campaign context
-  if (contact?.source_id && contact?.email) {
-    // Haal plusvibe campaign_id op via leads
-    const { data: cc } = await supabase
-      .from('leads')
-      .select('plusvibe_lead_id')
-      .eq('contact_id', contact.id)
-      .not('plusvibe_lead_id', 'is', null)
-      .order('added_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (cc?.plusvibe_lead_id) {
-      // Bepaal plusvibe campaign_id via campaigns tabel
-      const { data: camp } = await supabase
-        .from('campaigns')
-        .select('provider_campaign_id')
-        .eq('id', contact.last_campaign_id)
-        .eq('provider', 'plusvibe')
-        .maybeSingle()
-      if (camp?.provider_campaign_id) {
-        await updatePlusVibeLead(contact.email, camp.provider_campaign_id)
-      }
-    }
-  }
-  await updatePlusVibeByDomain(supabase, n.attendeeEmail)
-
   // Update contact + DNC Level 3 (meeting_booked = client-scoped suppression)
   if (contact) {
     await supabase.from('contacts').update({
@@ -213,7 +184,7 @@ async function handleCreated(
     const { data: newOpp, error: oppErr } = await supabase.from('opportunities').insert({
       client_id: client?.id || null,
       lead_id: contact?.id || null,
-      campaign_id: contact?.campaign_id || null,
+      campaign_id: contact?.last_campaign_id || null,
       name: companyName,
       status: 'meeting_booked',
       source: 'cold_email',
@@ -420,49 +391,6 @@ function normGeneric(raw: any): NormalizedMeeting | null {
     eventType: raw.type || '', startTime: raw.start_time || raw.startTime || '', endTime: raw.end_time || raw.endTime || '',
     location: raw.location || '', attendeeEmail: em.toLowerCase().trim(),
     attendeeName: raw.name || raw.attendee_name || '', attendeeTimezone: '' }
-}
-
-// ============================================================
-// PLUSVIBE
-// ============================================================
-async function updatePlusVibeLead(email: string, campaignId: string) {
-  try {
-    await fetch('https://api.plusvibe.ai/api/v1/lead/data/update', {
-      method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: campaignId, email, variables: { label: 'MEETING_BOOKED' } }),
-    })
-    await fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
-      method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: campaignId, email, new_status: 'COMPLETED' }),
-    })
-  } catch (err) {
-    console.error('[webhook-meeting] PlusVibe lead update failed (non-critical):', (err as Error).message)
-  }
-}
-
-async function updatePlusVibeByDomain(supabase: any, email: string) {
-  try {
-    const domain = email.split('@')[1]
-    if (!domain) return
-    // Zoek contacts met zelfde domein via leads (plusvibe campaign info)
-    const { data: domainContacts } = await supabase
-      .from('contacts')
-      .select('email, leads(plusvibe_lead_id, campaign:campaigns(provider_campaign_id))')
-      .like('email', `%@${domain}`)
-      .not('email', 'is', null)
-      .limit(50)
-    for (const dc of (domainContacts || [])) {
-      if (dc.email === email) continue
-      const cc = (dc as any).leads?.[0]
-      if (!cc?.plusvibe_lead_id || !cc?.campaign?.provider_campaign_id) continue
-      fetch('https://api.plusvibe.ai/api/v1/lead/update/status', {
-        method: 'POST', headers: { 'x-api-key': PLUSVIBE_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: PLUSVIBE_WORKSPACE, campaign_id: cc.campaign.provider_campaign_id, email: dc.email, new_status: 'COMPLETED' }),
-      }).catch((err: Error) => console.error('[webhook-meeting] PlusVibe domain sync failed:', err.message))
-    }
-  } catch (err) {
-    console.error('[webhook-meeting] updatePlusVibeByDomain failed:', (err as Error).message)
-  }
 }
 
 // ============================================================

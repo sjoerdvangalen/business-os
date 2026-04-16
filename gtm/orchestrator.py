@@ -237,7 +237,7 @@ def execute_campaign(client_code: str) -> dict:
         print(f"    A-Leads: {len(businesses)} businesses")
         stats["businesses_found"] += len(businesses)
 
-        # Campaign ID for linking (nullable — cell may not yet be linked to PlusVibe)
+        # Campaign ID for linking (nullable — cell may not yet have an EmailBison campaign)
         campaign_id = cell.get("campaign_id")
 
         for biz in businesses:

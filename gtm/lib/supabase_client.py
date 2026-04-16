@@ -51,7 +51,7 @@ def get_client_by_code(client_code: str) -> dict | None:
     result = (
         get_client()
         .table("clients")
-        .select("id, name, client_code, strategy")
+        .select("id, name, client_code")
         .eq("client_code", client_code)
         .maybe_single()
         .execute()
@@ -235,7 +235,6 @@ def link_contact_to_campaign(
     contact_id: str,
     campaign_id: str,
     client_id: str,
-    plusvibe_lead_id: str | None = None,
 ) -> dict:
     payload: dict[str, Any] = {
         "contact_id": contact_id,
@@ -243,8 +242,6 @@ def link_contact_to_campaign(
         "client_id": client_id,
         "status": "targeted",
     }
-    if plusvibe_lead_id:
-        payload["plusvibe_lead_id"] = plusvibe_lead_id
 
     result = (
         get_client()
