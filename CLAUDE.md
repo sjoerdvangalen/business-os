@@ -59,6 +59,45 @@ intake → exa research → synthesis (gtm_strategies) → internal doc → exte
 - "Top ICP combinations" in synthesis
 - `pilot_test_logic` / sample sizes in AI-output (authoritative in ROADMAP.md)
 
+### Campaign Archetypes
+
+Het archetype bepaalt de campaign architectuur — niet de hook zelf.
+
+```
+matrix_driven    Volledige persona × vertical × solution matrix.
+                 Alle combos seeded als cells. Winners via pilotdata.
+                 Standaard voor nieuwe clients na synthesis.
+
+data_driven      Op basis van beschikbare data (SDE-register, imports, CSV).
+                 Geen synthesis vereist. Cells aangemaakt vanuit de dataset zelf.
+                 Bruikbaar voor niche-clients met eigen brondata.
+
+signal_driven    Alleen companies met een actief buy signal worden getarget.
+                 Tier 1/2 signals bepalen welke cells als eerste geactiveerd worden.
+                 Hogere kosten per contact, hogere conversie verwacht.
+```
+
+### Signal Tiers (bepalen send mode + CTA-keuze)
+
+```
+Tier 1   High intent trigger — actief signaal, bewijs van urgentie nu
+         (recent funding, active hiring for target role, product launch, churn reviews)
+         → Directe CTA (meeting / call), kortere sequence
+
+Tier 2   Warm trigger / problem evidence — indirect bewijs van relevant probleem
+         (headcount groei, tech stack hints, G2 reviews, nieuws)
+         → info_send of case_study_send CTA, standaard sequence
+
+Tier 3   Qualified no trigger — firmografisch fit, geen zichtbaar signaal
+         (juiste sector/grootte, niets specifieks gevonden)
+         → Longer nurture sequence, HUIDIG-frames, lagere CTA drempel
+
+Tier 4   Experimental hypothesis — onzeker fit, nieuwe vertical of ICP
+         → Observational only, kleine batch, geen volume tot data bewijst
+```
+
+Tier wordt bepaald tijdens sourcing / enrichment. Stuurt: `send_mode`, `cta_direction`, welke cells eerst live gaan, en hoe kill logic werkt (Tier 3 cells krijgen ruimere pilotperiode).
+
 ## Owner
 Sjoerd van Galen — founder of **VGG Acquisition** (B2B lead generation agency).
 Also co-runs **GTM Scaling** with partner Niels (same model, shared clients).
@@ -96,7 +135,7 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 │   ├── cloud-deploy-protocol.md       # Deployment procedure (DB + edge functions)
 │   └── API_KEYS.md                    # API key locations and deploy commands
 ├── research/                          # Client research (currently SECX only)
-│   └── SECX-*.md (7 files)           # SentioCX campaign matrix, prompts per persona, test comparisons
+│   └── SECX-*.md                      # SentioCX campaign matrix, prompts per persona, test comparisons
 ├── dashboard/                         # Next.js dashboard (Vercel)
 │   ├── app/(dashboard)/page.tsx       # Command Center
 │   ├── app/components/                # Shared UI components
@@ -428,7 +467,7 @@ This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird)
 **Rule: Never generate outbound advice, copy, or strategy from generic knowledge. Always ground it in the playbook.**
 
 ## Client Research
-Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioCX (SECX) has research files (7 files: campaigns matrix, prompts per persona, test comparisons).
+Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioCX (SECX) has research files (campaigns matrix, prompts per persona, test comparisons — run `ls research/SECX-*.md` for current set).
 **When asked about a client with research files, ALWAYS read them first for full context.**
 
 ## Known Issues

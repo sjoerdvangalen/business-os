@@ -90,6 +90,35 @@ When there's no clear buyer title:
 3. **Firmographic lists**: Right size/industry but no signal (baseline)
 4. **Scraped lists**: Industry directories, events, etc. (supplementary)
 
+### Signal Tiers
+
+Signal tier bepaalt send mode, CTA-keuze, sequence lengte, en kill logic per cell.
+
+```
+Tier 1   High intent trigger
+         Actief signaal, bewijs van urgentie nu.
+         Voorbeelden: recent funding, active hiring voor target rol, product launch, churn reviews.
+         → Directe CTA (meeting/call), korte sequence (2-3 stappen)
+
+Tier 2   Warm trigger / problem evidence
+         Indirect bewijs van relevant probleem.
+         Voorbeelden: headcount groei, tech stack hints, G2 reviews, nieuws.
+         → info_send of case_study_send CTA, standaard sequence
+
+Tier 3   Qualified no trigger
+         Firmografisch fit, geen zichtbaar signaal gevonden.
+         → Langere nurture sequence, HUIDIG-frames, lagere CTA drempel, ruimere pilotperiode
+
+Tier 4   Experimental hypothesis
+         Onzeker fit — nieuwe vertical of ICP die nog niet bewezen is.
+         → Observationeel, kleine batch (<50), geen volume tot data een patroon bewijst
+```
+
+**Praktisch gebruik:**
+- Tier 1/2 signalen → cell is klaar voor H1 zodra infra groen is
+- Tier 3 cells → start pas na Tier 1/2 baseline data (2+ weken)
+- Tier 4 → apart gemarkeerd in campaign_cells.brief, nooit tegelijk met Tier 1/2 schalen
+
 ---
 
 ## Part 3: Research Method
