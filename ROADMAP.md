@@ -35,6 +35,10 @@ campaign_cells      = enige write target voor execution units
 clients.gtm_synthesis = DEPRECATED_READONLY
 ```
 
+### Research files = benchmark, niet canonical
+
+`research/CLIENT-*.md` bestanden (bijv. `research/SECX-*.md`) zijn **benchmark en campagnecontext** voor een specifieke client — prompts, test-vergelijkingen, hook-ideeën. Ze zijn **geen implementatie-instructie** en beschrijven niet hoe het systeem werkt. Pipeline-logica, tabelstructuur en send-regels staan hier in ROADMAP.md en CLAUDE.md — nergens anders.
+
 ### Cell identity (4 dimensies)
 
 ```

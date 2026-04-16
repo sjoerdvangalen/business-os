@@ -119,6 +119,32 @@ Tier 4   Experimental hypothesis
 - Tier 3 cells → start pas na Tier 1/2 baseline data (2+ weken)
 - Tier 4 → apart gemarkeerd in campaign_cells.brief, nooit tegelijk met Tier 1/2 schalen
 
+### Send Mode
+
+Send mode bepaalt de aard van de CTA. Ingesteld per cell in `campaign_cells.brief.cta_directions`.
+
+```
+direct_meeting   "Heb je 15 minuten?" — alleen Tier 1 signals
+info_send        "Kan ik je [resource/case study] sturen?" — Tier 1/2
+case_study_send  "Stuur je een vergelijkbare case?" — Tier 2
+nurture          Geen directe CTA — Tier 3, langere sequence
+```
+
+**CTA-lock tijdens H1/F1:** alleen `info_send` of `case_study_send`. Geen directe meeting-CTA tot na F1 winner. (Authoritative: ROADMAP.md test discipline.)
+
+### Offer Mode
+
+Offer mode bepaalt het frame van de waardepropositie.
+
+```
+outcome_led      Resultaat centraal    "23% churn reduction in 90 days"
+problem_led      Pain centraal         "Your team is doing X manually"
+insight_led      Observatie centraal   "Companies hiring for X usually see Y"
+social_proof_led Bewijs centraal       "Competitor X reduced cost by Y"
+```
+
+Offer mode kiest je op basis van: beschikbaar bewijs, signaal type, en persona. Outcome_led werkt alleen met harde metrics. Bij geen bewijs: insight_led of problem_led.
+
 ---
 
 ## Part 3: Research Method

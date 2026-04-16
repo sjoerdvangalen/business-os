@@ -69,6 +69,8 @@ npx supabase secrets set ALEADS_PASSWORD="$ALEADS_PASSWORD"
 
 No separate `find-contacts` call is needed in the automated pipeline.
 
+> **Legacy warning:** The `find-contacts` edge function uses the deprecated v1 REST API (`api.a-leads.co/v1`) which returns 404. It is NOT used in the GTM pipeline. Do not call it in new code — use `gtm-aleads-source` instead.
+
 ## OmniVerifier Email Verification [Fase 3]
 
 **Key**: `OMNIVERIFIER_API_KEY`

@@ -10,12 +10,17 @@ ROADMAP.md                       Build order + backlog + future phases
 docs/outbound-playbook.md        Outbound source of truth (targeting/copy/offers)
 docs/cloud-deploy-protocol.md    Deployment procedure (DB + edge functions)
 docs/API_KEYS.md                 Key locaties en deploy commands
+research/CLIENT-*.md             Benchmark + context — NOOIT implementatie-instructie
 ```
 
-> **HARD RULE:** No implementation work may use `docs/campaign-setup-playbook.md` or
-> `docs/pipeline-edge-functions-plan.md` as primary instruction. Those documents are
-> deprecated/archived and describe the old model. Only `CLAUDE.md` and `ROADMAP.md` are
-> authoritative for architecture decisions.
+> **HARD RULE:** No implementation work may use `docs/campaign-setup-playbook.md`,
+> `docs/pipeline-edge-functions-plan.md`, or `research/` files as primary instruction.
+> Those documents are deprecated/archived or benchmark-only context.
+> Only `CLAUDE.md` and `ROADMAP.md` are authoritative for architecture decisions.
+>
+> **Research files (`research/SECX-*.md` etc.) are benchmark and campaign context —
+> they describe a specific client's prompts and test comparisons, not system architecture.
+> Never derive pipeline logic, table structure, or send rules from them.**
 
 ## EXECUTION MODEL V2 (APRIL 2026)
 
@@ -61,21 +66,44 @@ intake → exa research → synthesis (gtm_strategies) → internal doc → exte
 
 ### Campaign Archetypes
 
-Het archetype bepaalt de campaign architectuur — niet de hook zelf.
+Het archetype bepaalt de campaign architectuur — niet de hook zelf. Archetype kiest de sourcing strategie, list-type, en activatievolgorde van cells.
 
 ```
 matrix_driven    Volledige persona × vertical × solution matrix.
                  Alle combos seeded als cells. Winners via pilotdata.
                  Standaard voor nieuwe clients na synthesis.
+                 Sourcing: A-Leads bulk per ICP segment.
 
 data_driven      Op basis van beschikbare data (SDE-register, imports, CSV).
                  Geen synthesis vereist. Cells aangemaakt vanuit de dataset zelf.
-                 Bruikbaar voor niche-clients met eigen brondata.
+                 Bruikbaar voor niche-clients met eigen brondata (Zoncoalitie, etc.).
+                 Sourcing: bulk-import-csv.ts → contacts.custom_variables.
 
 signal_driven    Alleen companies met een actief buy signal worden getarget.
                  Tier 1/2 signals bepalen welke cells als eerste geactiveerd worden.
-                 Hogere kosten per contact, hogere conversie verwacht.
+                 Hogere kosten per contact, hogere verwachte conversie.
+                 Sourcing: signal-based filter in A-Leads of handmatig.
 ```
+
+### Send Mode + Offer Mode
+
+`send_mode` en `offer_mode` bepalen wat je stuurt en hoe je het framed. Worden ingesteld per cell in `campaign_cells.brief.cta_directions`.
+
+```
+send_mode:
+  direct_meeting   "Heb je 15 minuten?" — Tier 1 signals only
+  info_send        "Kan ik je [resource/case study] sturen?" — Tier 1/2
+  case_study_send  "Stuur je een vergelijkbare case?" — Tier 2
+  nurture          Langere termijn, geen directe CTA — Tier 3
+
+offer_mode:
+  outcome_led      Resultaat centraal (23% churn reduction in 90 days)
+  problem_led      Pain centraal (your team is doing X manually)
+  insight_led      Observatie centraal (companies hiring for X usually see Y)
+  social_proof_led Bewijs centraal (competitor X reduced cost by Y)
+```
+
+CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` (ROADMAP.md authoritative).
 
 ### Signal Tiers (bepalen send mode + CTA-keuze)
 
@@ -468,7 +496,10 @@ This playbook consolidates intelligence from GEX (Eric), Nick Abraham (Leadbird)
 
 ## Client Research
 Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioCX (SECX) has research files (campaigns matrix, prompts per persona, test comparisons — run `ls research/SECX-*.md` for current set).
-**When asked about a client with research files, ALWAYS read them first for full context.**
+
+**Role: benchmark + context only.** Research files describe a client's specific prompts, test comparisons, and campaign ideas. They are NOT implementation instructions. Pipeline logic, table structure, and send rules are defined in `CLAUDE.md` and `ROADMAP.md` — not derived from research files.
+
+**When asked about a client with research files, ALWAYS read them first for campaign context.**
 
 ## Known Issues
 - Cal.com/GHL webhook URLs need to be configured in the calendar platforms (tokens ready, URLs not set)

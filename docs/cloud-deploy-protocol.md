@@ -176,6 +176,88 @@ LIMIT 10;
 
 ---
 
+## GTM Pipeline V2 — Validatie per fase
+
+Na het deployen of wijzigen van GTM-functies: valideer de live staat per pipeline fase.
+
+### Fase 1 — Synthesis
+
+Na deploy van `gtm-synthesis`:
+```sql
+-- Strategie aangemaakt voor client
+SELECT id, client_id, status, created_at
+FROM gtm_strategies
+WHERE client_id = '<uuid>'
+ORDER BY created_at DESC LIMIT 3;
+
+-- Synthesis bevat verwachte sleutels
+SELECT synthesis->>'solutions' IS NOT NULL,
+       synthesis->>'icp_segments' IS NOT NULL,
+       synthesis->>'campaign_matrix_seed' IS NOT NULL
+FROM gtm_strategies WHERE id = '<strategy_uuid>';
+```
+
+### Fase 2 — Skeleton cells (na external_approve)
+
+Na deploy van `gtm-campaign-cell-seed`:
+```sql
+-- Cells aangemaakt met juiste identiteit
+SELECT cell_code, solution_key, icp_key, vertical_key, persona_key, status
+FROM campaign_cells
+WHERE strategy_id = '<strategy_uuid>'
+ORDER BY created_at;
+
+-- Status moet sourcing_pending zijn
+SELECT status, COUNT(*) FROM campaign_cells
+WHERE strategy_id = '<strategy_uuid>' GROUP BY status;
+```
+
+### Fase 3 — Sourcing (na sourcing_approve)
+
+Na deploy van `gtm-aleads-source`:
+```sql
+-- Sourcing run aangemaakt
+SELECT id, client_id, status, companies_found, contacts_found, created_at
+FROM sourcing_runs
+WHERE client_id = '<uuid>'
+ORDER BY created_at DESC LIMIT 5;
+
+-- Contacts gelinkt aan cells via leads
+SELECT cell_id, COUNT(*) as contact_count
+FROM leads
+WHERE client_id = '<uuid>'
+GROUP BY cell_id;
+```
+
+### Fase 4 — Messaging (na messaging_approve)
+
+Na deploy van `gtm-campaign-cell-enrich`:
+```sql
+-- Cells hebben brief met hook_frameworks
+SELECT cell_code, status,
+       brief->'hook_frameworks' IS NOT NULL as has_hooks,
+       brief->'cta_directions' IS NOT NULL as has_cta
+FROM campaign_cells
+WHERE strategy_id = '<strategy_uuid>';
+
+-- Status moet ready zijn
+SELECT status, COUNT(*) FROM campaign_cells
+WHERE strategy_id = '<strategy_uuid>' GROUP BY status;
+```
+
+### Fase 5 — Campaign push (na checkLiveTestReadiness)
+
+Na deploy van `gtm-campaign-push`:
+```sql
+-- EmailBison campaigns aangemaakt en gelinkt aan cells
+SELECT c.name, c.provider_campaign_id, c.cell_id, c.status
+FROM campaigns c
+WHERE c.client_id = '<uuid>'
+ORDER BY c.created_at DESC LIMIT 10;
+```
+
+---
+
 ## Emergency Contacts
 
 - Supabase Status: https://status.supabase.com/
