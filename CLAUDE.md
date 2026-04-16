@@ -94,7 +94,6 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 ├── docs/
 │   ├── outbound-playbook.md           # Core playbook — ALL outbound decisions start here
 │   ├── cloud-deploy-protocol.md       # Deployment procedure (DB + edge functions)
-│   ├── campaign-setup-playbook.md     # DEPRECATED — historical reference only. Contains obsolete PlusVibe + old campaign-based instructions. Never use as implementation guide.
 │   └── API_KEYS.md                    # API key locations and deploy commands
 ├── research/                          # Client research (currently SECX only)
 │   └── SECX-*.md (7 files)           # SentioCX campaign matrix, prompts per persona, test comparisons
