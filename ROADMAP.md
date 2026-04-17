@@ -184,13 +184,13 @@ Benchmark: SECX → 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT
 
 ---
 
-## Sprint 2B — Copy Engine (parallel met GTM Pipeline V2)
+## Sprint 2B — Copy Engine (DONE)
 
-- persona_registry.ts + vertical_registry.ts (SECX benchmark → shared library)
-- formula_resolver.ts (constraints + variant sets + defaults)
-- gtm-messaging-doc: formula resolver injectie
-- gtm-campaign-cell-enrich: 2-laags QA rubric (deterministic + LLM)
-- messaging_revision status + Slack alert (`messaging_revision` = messaging generated but failed QA or operator review; awaiting correction or regeneration)
+- [x] persona_registry.ts + vertical_registry.ts (SECX benchmark → shared library)
+- [x] formula_resolver.ts (constraints + variant sets + defaults)
+- [x] gtm-messaging-doc: formula resolver injectie
+- [x] gtm-campaign-cell-enrich: 2-laags QA rubric (deterministic + LLM)
+- [x] messaging_revision status + Slack alert (`messaging_revision` = messaging generated but failed QA or operator review; awaiting correction or regeneration)
 
 ---
 

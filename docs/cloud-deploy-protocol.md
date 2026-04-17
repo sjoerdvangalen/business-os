@@ -233,10 +233,9 @@ GROUP BY cell_id;
 
 Na deploy van `gtm-campaign-cell-enrich`:
 ```sql
--- Cells hebben brief met hook_frameworks
-SELECT cell_code, status,
-       brief->'hook_frameworks' IS NOT NULL as has_hooks,
-       brief->'cta_variant' IS NOT NULL as has_cta
+-- Cells hebben brief met hook_frameworks en top-level variant kolommen
+SELECT cell_code, status, cta_variant,
+       brief->'hook_frameworks' IS NOT NULL as has_hooks
 FROM campaign_cells
 WHERE strategy_id = '<strategy_uuid>';
 

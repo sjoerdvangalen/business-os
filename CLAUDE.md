@@ -197,7 +197,7 @@ proof_led dual use — explicit definitions:
 │   └── API_KEYS.md                    # API key locations and deploy commands
 ├── research/                          # Client research (currently SECX only)
 │   └── SECX-*.md                      # SentioCX campaign matrix, prompts per persona, test comparisons
-├── dashboard/                         # Next.js dashboard (Vercel)
+├── frontend/                          # Next.js dashboard (Vercel)
 │   ├── app/(dashboard)/page.tsx       # Command Center
 │   ├── app/components/                # Shared UI components
 │   └── lib/supabase/                  # Supabase client helpers
@@ -210,11 +210,11 @@ proof_led dual use — explicit definitions:
 ├── supabase/
 │   ├── migrations/                    # SQL migrations (pushed with `npx supabase db push`)
 │   └── functions/                     # Edge functions (see list below)
-│       └── _archive/                  # 16 archived functions (not deployed)
+│       └── _archive/                  # 20 archived functions (not deployed)
 └── _archive/docs/                     # Archived reference docs
 ```
 
-## Edge Functions (31 active)
+## Edge Functions (35 active, 4 legacy in active dir awaiting archive)
 
 ### EmailBison Sync (pg_cron)
 - `sync-emailbison-accounts` — Every 15 min — email accounts + warmup scores
@@ -240,6 +240,7 @@ proof_led dual use — explicit definitions:
 - `gtm-campaign-cell-enrich` — Writes approved messaging back to `campaign_cells.brief` (status=ready) — triggered on messaging_approve
 - `gtm-infra-status` — Infra readiness check
 - `gtm-campaign-push` — EmailBison campaign creation + inbox attachment
+- `gtm-gate-notify` — Slack notification for approval gates
 
 ### Processing
 - `meeting-review` — Cron */5 min — Slack Block Kit review after meetings
@@ -250,6 +251,10 @@ proof_led dual use — explicit definitions:
 - `data-sourcing-orchestrator` — Full sourcing pipeline: source → validate → push
 - `emailbison-pusher` — Push validated contacts to EmailBison campaigns
 
+### Infra
+- `namecheap-purchase-domain` — Domain purchase automation
+- `namecheap-set-nameservers` — Nameserver configuration
+
 ### Lead Generation
 - `email-waterfall` — Multi-step email verification: 90-day cache → DNC L1/L2/L3 → OmniVerifier confirm + catchall detection → TryKitt patterns → Enrow email find fallback
 - `ai-enrich-contact` — AI enrichment for contacts
@@ -259,6 +264,8 @@ proof_led dual use — explicit definitions:
 
 ### Archived (in `_archive/`, not deployed)
 sync-plusvibe-campaigns, sync-plusvibe-accounts, sync-plusvibe-warmup, sync-plusvibe-leads, sync-sequences, webhook-receiver, populate-daily-kpis, verify-deployment, gtm-crud-*, analyze-*, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
+
+**Legacy still in active directory (to be moved to `_archive/`):** `populate-daily-kpis`, `sync-sequences`, `verify-deployment`, `webhook-receiver`
 
 ---
 
@@ -523,7 +530,7 @@ curl -s -X POST 'https://gjhbbyodrbuabfzafzry.supabase.co/functions/v1/webhook-m
 Na elke `db push` of schema-wijziging: query live DB en vergelijk met CLAUDE.md. Update CLAUDE.md direct als er verschillen zijn.
 
 ```bash
-source ~/.claude/load-env.sh
+source ~/.claude/scripts/load-env.sh
 
 # Live tabeloverzicht
 curl -s -X POST "https://api.supabase.com/v1/projects/gjhbbyodrbuabfzafzry/database/query" \
