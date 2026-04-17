@@ -160,14 +160,24 @@ serve(async (req) => {
         workflow_metrics: updatedWm,
       }
 
-      // Trigger sourcing first — messaging comes after sourcing_approve
+      // Seed skeleton cells from campaign_matrix_seed (fire-and-forget)
       EdgeRuntime.waitUntil(
-        fetch(`${supabaseUrl}/functions/v1/gtm-aleads-source`, {
+        fetch(`${supabaseUrl}/functions/v1/gtm-campaign-cell-seed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
           body: JSON.stringify({ client_id }),
-        }).then(r => console.log(`[${requestId}] gtm-aleads-source triggered: ${r.status}`))
-          .catch(err => console.error(`[${requestId}] gtm-aleads-source trigger failed:`, err.message))
+        }).then(r => console.log(`[${requestId}] gtm-campaign-cell-seed triggered: ${r.status}`))
+          .catch(err => console.error(`[${requestId}] gtm-campaign-cell-seed trigger failed:`, err.message))
+      )
+
+      // Trigger execution review doc — keyword profiling + Squirrel preview per ICP segment
+      EdgeRuntime.waitUntil(
+        fetch(`${supabaseUrl}/functions/v1/gtm-execution-review-doc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+          body: JSON.stringify({ client_id }),
+        }).then(r => console.log(`[${requestId}] gtm-execution-review-doc triggered: ${r.status}`))
+          .catch(err => console.error(`[${requestId}] gtm-execution-review-doc trigger failed:`, err.message))
       )
     }
 
@@ -213,7 +223,17 @@ serve(async (req) => {
 
       if (updateError) throw new Error(updateError.message)
 
-      // Messaging approved → check if all conditions met for campaign push
+      // Messaging approved → enrich skeleton cells with messaging output
+      EdgeRuntime.waitUntil(
+        fetch(`${supabaseUrl}/functions/v1/gtm-campaign-cell-enrich`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+          body: JSON.stringify({ client_id }),
+        }).then(r => console.log(`[${requestId}] gtm-campaign-cell-enrich triggered: ${r.status}`))
+          .catch(err => console.error(`[${requestId}] gtm-campaign-cell-enrich trigger failed:`, err.message))
+      )
+
+      // Also check if all conditions met for campaign push
       await checkLiveTestReadiness(supabase, client_id)
 
       console.log(`[${requestId}] Action ${action} for client ${client_id}`)
@@ -253,7 +273,7 @@ serve(async (req) => {
           last_feedback: feedback ?? block.last_feedback ?? null,
         },
       }
-      updatePayload = { workflow_metrics: updatedWm }
+      updatePayload = { approval_status: 'sourcing_approved', workflow_metrics: updatedWm }
 
       const { error: updateError } = await supabase
         .from('clients')
@@ -262,7 +282,7 @@ serve(async (req) => {
 
       if (updateError) throw new Error(updateError.message)
 
-      // Sourcing approved → trigger messaging doc next
+      // Sourcing approved → trigger messaging doc + actual A-Leads bulk sourcing in parallel
       EdgeRuntime.waitUntil(
         fetch(`${supabaseUrl}/functions/v1/gtm-messaging-doc`, {
           method: 'POST',
@@ -270,6 +290,15 @@ serve(async (req) => {
           body: JSON.stringify({ client_id }),
         }).then(r => console.log(`[${requestId}] gtm-messaging-doc triggered: ${r.status}`))
           .catch(err => console.error(`[${requestId}] gtm-messaging-doc trigger failed:`, err.message))
+      )
+
+      EdgeRuntime.waitUntil(
+        fetch(`${supabaseUrl}/functions/v1/gtm-aleads-source`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+          body: JSON.stringify({ client_id }),
+        }).then(r => console.log(`[${requestId}] gtm-aleads-source triggered: ${r.status}`))
+          .catch(err => console.error(`[${requestId}] gtm-aleads-source trigger failed:`, err.message))
       )
 
       console.log(`[${requestId}] Action ${action} for client ${client_id}`)
@@ -293,7 +322,7 @@ serve(async (req) => {
           last_feedback: feedback ?? block.last_feedback ?? null,
         },
       }
-      updatePayload = { workflow_metrics: updatedWm }
+      updatePayload = { approval_status: 'sourcing_rejected', workflow_metrics: updatedWm }
     }
 
     console.log(`[${requestId}] Action ${action} for client ${client_id}`)

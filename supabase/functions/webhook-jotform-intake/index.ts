@@ -332,13 +332,26 @@ serve(async (req) => {
     }
 
     // ── 6. Update client ───────────────────────────────────────────────────
+    const now = new Date().toISOString()
+
+    const initialWorkflowMetrics = {
+      intake: { status: 'completed', attempts: 1, started_at: now, decided_at: now, duration_seconds: 0 },
+      internal_approval: { status: 'pending', attempts: 0, started_at: null, decided_at: null, duration_seconds: null, last_feedback: null, score: null },
+      external_approval: { status: 'pending', attempts: 0, started_at: null, decided_at: null, duration_seconds: null, last_feedback: null },
+      messaging_approval: { status: 'pending', attempts: 0, started_at: null, decided_at: null, duration_seconds: null, last_feedback: null },
+      sourcing_review: { status: 'not_started', attempts: 0, started_at: null, decided_at: null, duration_seconds: null, last_feedback: null },
+      infra: { status: 'not_started', last_feedback: null, updated_at: null },
+      totals: { pipeline_started_at: now, days_to_first_live_test: null },
+    }
+
     const { error: updateError } = await supabase
       .from('clients')
       .update({
         onboarding_form: contract,
         onboarding_form_raw: raw,
-        intake_status: intakeStatus,
-        last_intake_at: new Date().toISOString(),
+        stage: 'intake',
+        last_intake_at: now,
+        workflow_metrics: initialWorkflowMetrics,
         ...(contactEmail ? { primary_contact_email: contactEmail } : {}),
       })
       .eq('id', clientId)
@@ -352,6 +365,26 @@ serve(async (req) => {
     }
 
     console.log(`[${requestId}] Intake stored: client=${clientId} status=${intakeStatus} submission=${submissionId}`)
+
+    // ── 7. Trigger research pipeline (fire-and-forget) ────────────────────
+    if (intakeStatus === 'form_submitted') {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      EdgeRuntime.waitUntil(
+        fetch(`${supabaseUrl}/functions/v1/gtm-research`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({ client_id: clientId }),
+        }).then(r => {
+          console.log(`[${requestId}] gtm-research triggered: ${r.status}`)
+        }).catch(err => {
+          console.error(`[${requestId}] gtm-research trigger failed:`, err.message)
+        })
+      )
+    }
 
     return new Response(
       JSON.stringify({

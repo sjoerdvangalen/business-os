@@ -169,6 +169,7 @@ serve(async (req) => {
             email_verified: isVerified,
             email_verified_at: new Date().toISOString(),
             email_waterfall_status: waterfallStatus,
+            email_catchall: enrowResult.status === 'catch_all',
           }).eq('id', contact.id);
 
           // Log naar contact_validation_log
