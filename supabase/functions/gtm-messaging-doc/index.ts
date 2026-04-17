@@ -1,9 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { resolveFormula } from '../_shared/formula_resolver.ts'
 
 const KIMI_API_KEY = Deno.env.get('KIMI_API_KEY') ?? ''
-const KIMI_MESSAGES_URL = 'https://api.kimi.com/coding/v1/messages'
-const MESSAGING_MODEL = 'kimi-k2-5'
+const KIMI_BASE_URL = (Deno.env.get('KIMI_BASE_URL') || 'https://api.kimi.com').replace(/\/$/, '')
+const MESSAGING_MODEL = 'kimi-k2-turbo-preview'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -99,315 +100,326 @@ async function getGoogleAccessTokenFromServiceAccount(serviceAccountJson: string
   return tokenData.access_token
 }
 
+interface DocBlock {
+  style: 'HEADING_1' | 'HEADING_2' | 'HEADING_3' | 'NORMAL_TEXT'
+  text: string
+  bold?: boolean
+}
+
+function extractDocId(url: string): string | null {
+  const match = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/)
+  return match?.[1] ?? null
+}
+
+async function appendToDoc(accessToken: string, docId: string, blocks: DocBlock[]): Promise<void> {
+  const getRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  })
+  if (!getRes.ok) throw new Error(`Google Docs get error: ${await getRes.text()}`)
+
+  const doc = await getRes.json() as { body: { content: Array<{ endIndex?: number }> } }
+  const content = doc.body.content
+  const docEndIndex = (content[content.length - 1]?.endIndex ?? 2) - 1
+
+  const requests: unknown[] = []
+  let idx = docEndIndex
+
+  for (const block of blocks) {
+    const text = block.text + '\n'
+    const start = idx
+    const end = idx + text.length
+    requests.push({ insertText: { location: { index: start }, text } })
+    if (block.style !== 'NORMAL_TEXT') {
+      requests.push({
+        updateParagraphStyle: {
+          range: { startIndex: start, endIndex: end },
+          paragraphStyle: { namedStyleType: block.style },
+          fields: 'namedStyleType',
+        },
+      })
+    }
+    if (block.bold) {
+      requests.push({
+        updateTextStyle: {
+          range: { startIndex: start, endIndex: end - 1 },
+          textStyle: { bold: true },
+          fields: 'bold',
+        },
+      })
+    }
+    idx = end
+  }
+
+  const batchRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests }),
+  })
+  if (!batchRes.ok) throw new Error(`Google Docs batchUpdate error: ${await batchRes.text()}`)
+}
+
 async function createGoogleDoc(
   accessToken: string,
   title: string,
-  content: string,
+  blocks: DocBlock[],
   folderId?: string
 ): Promise<string> {
   const createRes = await fetch('https://docs.googleapis.com/v1/documents', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
   })
+  if (!createRes.ok) throw new Error(`Google Docs create error: ${await createRes.text()}`)
 
-  if (!createRes.ok) {
-    const err = await createRes.text()
-    throw new Error(`Google Docs create error: ${err}`)
-  }
+  const { documentId } = await createRes.json() as { documentId: string }
 
-  const doc = await createRes.json() as { documentId: string }
-  const docId = doc.documentId
+  const requests: unknown[] = []
+  let idx = 1
 
-  const batchRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      requests: [{
-        insertText: {
-          location: { index: 1 },
-          text: content,
+  for (const block of blocks) {
+    const text = block.text + '\n'
+    const start = idx
+    const end = idx + text.length
+    requests.push({ insertText: { location: { index: start }, text } })
+    if (block.style !== 'NORMAL_TEXT') {
+      requests.push({
+        updateParagraphStyle: {
+          range: { startIndex: start, endIndex: end },
+          paragraphStyle: { namedStyleType: block.style },
+          fields: 'namedStyleType',
         },
-      }],
-    }),
-  })
-
-  if (!batchRes.ok) {
-    const err = await batchRes.text()
-    throw new Error(`Google Docs batchUpdate error: ${err}`)
+      })
+    }
+    if (block.bold) {
+      requests.push({
+        updateTextStyle: {
+          range: { startIndex: start, endIndex: end - 1 },
+          textStyle: { bold: true },
+          fields: 'bold',
+        },
+      })
+    }
+    idx = end
   }
+
+  const batchRes = await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests }),
+  })
+  if (!batchRes.ok) throw new Error(`Google Docs batchUpdate error: ${await batchRes.text()}`)
 
   if (folderId) {
-    await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?addParents=${folderId}&fields=id`, {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${documentId}?addParents=${folderId}&fields=id`, {
       method: 'PATCH',
       headers: { 'Authorization': `Bearer ${accessToken}` },
     })
   }
 
-  return `https://docs.google.com/document/d/${docId}/edit`
+  return `https://docs.google.com/document/d/${documentId}/edit`
 }
 
-const SYSTEM_PROMPT = `You are a senior B2B cold email strategist and copywriter. Your job is to produce a messaging layer document that guides the copy team on angles, proof, tone, hooks, and draft email copy.
+// ── Messaging system prompt ─────────────────────────────────────────────────
 
-Output ONLY valid JSON matching the exact schema provided. No markdown, no preamble.
+const SYSTEM_PROMPT = `You are a senior B2B outbound copywriter specializing in cold email messaging frameworks.
+Your job is to produce per-cell messaging output for a campaign matrix. Each cell is a unique combination of solution × ICP × vertical × persona.
 
-Schema:
-{
-  "messaging_strategy": {
-    "core_narrative": "The overarching story to tell across all outreach",
-    "primary_angle": "The single sharpest angle for the priority ICP × persona combo",
-    "secondary_angles": ["2-3 backup angles for A/B testing"],
-    "proof_strategy": "How to weave social proof without being salesy"
-  },
-  "angle_directions": [
-    {
-      "icp": "ICP segment name",
-      "persona": "Persona title",
-      "angle": "Specific angle for this combo",
-      "hook_idea": "What the hook should feel like",
-      "proof_to_use": "Which proof points to use",
-      "tone_note": "Any combo-specific tone adjustments"
-    }
-  ],
-  "proof_usage_by_segment": [
-    {
-      "segment": "ICP segment name",
-      "proof_points": ["Most credible proof for this segment"],
-      "avoid": ["Proof that would not resonate or is inappropriate"]
-    }
-  ],
-  "tone_guide": {
-    "overall": "Primary tone description",
-    "do": ["Things to do in copy"],
-    "dont": ["Things to avoid in copy"],
-    "signature_phrases": ["Phrases or framings that fit this brand voice"]
-  },
-  "hook_variants": [
-    {
-      "icp_persona": "ICP × Persona label",
-      "hooks": [
-        {
-          "text": "The hook line (opening sentence)",
-          "angle": "Which angle this uses",
-          "note": "Why this works for this audience"
-        }
-      ]
-    }
-  ],
-  "subject_lines": [
-    {
-      "icp_persona": "ICP × Persona label",
-      "subjects": ["2-5 subject line variants (2-5 words, lowercase, no punctuation)"]
-    }
-  ],
-  "copy_angles": [
-    {
-      "icp_persona": "ICP × Persona label",
-      "angle_name": "Short label",
-      "opening": "Full opening sentence",
-      "body_direction": "1-2 sentences on what the body should say",
-      "cta": "The call to action",
-      "word_count_target": 65
-    }
-  ],
-  "generated_at": "ISO timestamp"
-}`
+Output ONLY a valid JSON array. No markdown, no preamble, no explanation.
 
-interface SourcingSegment {
-  name: string
-  companies: number
-  contacts: number
+CRITICAL RULES:
+- Each bullet in hook_frameworks MUST start with a verb from persona_start_verbs[persona_key]
+- Use vertical_customer_terms[vertical_key] for the "customer" (never use "customers" generically)
+- Use vertical_expert_terms[vertical_key] for the expert/operator destination
+- Use value_prop_formula.product_mechanism and product_ai_component EXACTLY as given — do not paraphrase
+- hook_frameworks must include BOTH "ERIC" and "HUIDIG" styles for each cell
+- ERIC = action-outcome-mechanism (what you do, what you get, how it works)
+- HUIDIG = product-feature focus (what the product does right now, specific capability)
+- Each bullet: 10-18 words maximum
+- cta_directions: ALWAYS exactly ["info_send", "case_study_send"] — locked during H1/F1, no exceptions
+- No subject lines, no full email copy — this is a briefing layer only
+- Do NOT prioritize cells — provide messaging for ALL cells in the input
+- Each cell has specific grammar constraints in the "PER-CELL GRAMMAR CONSTRAINTS" section — FOLLOW them exactly; banned adjectives listed per cell MUST NOT appear in any bullet, and required phrases per cell bullet grammar MUST be present
+
+Output schema (JSON array):
+[
+  {
+    "cell_code": "exact cell_code from input",
+    "solution_key": "...",
+    "icp_key": "...",
+    "vertical_key": "...",
+    "persona_key": "...",
+    "hook_frameworks": [
+      {
+        "style": "ERIC",
+        "bullets": [
+          "Verb + specific outcome + via product_mechanism + to expert_term",
+          "Route/Match/Automate + customer_term + via mechanism + based on signal",
+          "Scale/Deliver/Cut + result + without vertical_pain + using product_ai_component"
+        ]
+      },
+      {
+        "style": "HUIDIG",
+        "bullets": [
+          "Verb + what the product does + specific capability + for this vertical",
+          "Verb + observable input + automatic action + measurable output",
+          "Verb + customer_term + through mechanism + without manual step"
+        ]
+      }
+    ],
+    "cta_directions": ["info_send", "case_study_send"],
+    "trigger_alignment": ["trigger_event_class1", "trigger_event_class2"],
+    "signal_to_pain_mapping": "One sentence: what observable signal indicates this pain for this cell",
+    "proof_angle": "Which proof assets to use and how for this vertical/persona combo",
+    "objection_angle": "Most likely objection from this persona and how to pre-empt it",
+    "notes": ""
+  }
+]`
+
+// ── Build user prompt ───────────────────────────────────────────────────────
+
+interface CellInput {
+  cell_code: string
+  solution_key: string
+  icp_key: string
+  vertical_key: string
+  persona_key: string
+  trigger_event_classes: string[]
+  estimated_addressable_accounts: number | null
+  sourcing_findings_summary: string | null
+  brief: Record<string, unknown>
 }
 
-function buildUserPrompt(synthesis: Record<string, unknown>, sourcingSegments?: SourcingSegment[]): string {
-  const focus = (synthesis.recommended_initial_focus as Record<string, string>) ?? {}
-  const icpSegments = (synthesis.icp_segments as Array<Record<string, unknown>>) ?? []
-  const personas = (synthesis.buyer_personas as Array<Record<string, unknown>>) ?? []
-  const combos = (synthesis.icp_persona_combinations as Array<Record<string, unknown>>) ?? []
-  const messaging = (synthesis.messaging_direction as Record<string, string>) ?? {}
+function buildUserPrompt(
+  synthesis: Record<string, unknown>,
+  cells: CellInput[]
+): string {
+  const personaMap = (synthesis.persona_map as Array<Record<string, unknown>>) ?? []
+  const personaStartVerbs = (synthesis.persona_start_verbs as Record<string, string[]>) ?? {}
+  const verticalMap = (synthesis.vertical_map as Array<Record<string, unknown>>) ?? []
+  const verticalCustomerTerms = (synthesis.vertical_customer_terms as Record<string, string>) ?? {}
+  const verticalExpertTerms = (synthesis.vertical_expert_terms as Record<string, string>) ?? {}
+  const valuePropFormula = (synthesis.value_prop_formula as Record<string, unknown>) ?? {}
   const proofAssets = (synthesis.proof_assets as Array<Record<string, unknown>>) ?? []
-  const entryOffers = (synthesis.entry_offers as Array<Record<string, unknown>>) ?? []
-
-  const sourcingContext = sourcingSegments && sourcingSegments.length > 0
-    ? `\n## SOURCING CONTEXT (verified real audience — use this to ground your messaging)\n${sourcingSegments.map(s => `• ${s.name}: ${s.companies} bedrijven, ${s.contacts} contacten gevonden`).join('\n')}\n\nSchrijf messaging die past bij deze specifieke mensen en volumes — niet generiek.\n`
-    : ''
+  const messagingDirection = (synthesis.messaging_direction as Record<string, string>) ?? {}
 
   return `
 ## COMPANY THESIS
 ${synthesis.company_thesis || ''}
 
-## RECOMMENDED INITIAL FOCUS
-Solution: ${focus.solution || ''}
-ICP: ${focus.icp || ''}
-Persona: ${focus.persona || ''}
-Rationale: ${focus.rationale || ''}
+## VALUE PROP FORMULA (use these exact terms)
+Product mechanism: ${valuePropFormula.product_mechanism || ''}
+Product AI component: ${valuePropFormula.product_ai_component || ''}
+Bullet 1 pattern: ${valuePropFormula.bullet_1_pattern || ''}
+Bullet 2 pattern: ${valuePropFormula.bullet_2_pattern || ''}
+Bullet 3 pattern: ${valuePropFormula.bullet_3_pattern || ''}
+Word count target: ${valuePropFormula.word_count_target || 65}
 
-## ICP SEGMENTS
-${icpSegments.map(s => `${s.name} (${s.geo}, ${s.employee_range})\n  Industries: ${(s.industries as string[] ?? []).join(', ')}\n  Signal hypotheses: ${(s.signal_hypotheses as string[] ?? []).join(' | ')}`).join('\n\n')}
+## PERSONA MAP
+${personaMap.map(p => `${p.key}: ${p.label}
+  Focus themes: ${(p.focus_themes as string[] ?? []).join(', ')}
+  Owns metric: ${p.owns_metric}
+  Primary pain: ${p.primary_pain}
+  Start verbs: ${(personaStartVerbs[p.key as string] ?? []).join(', ')}`).join('\n\n')}
 
-## BUYER PERSONAS
-${personas.map(p => `${p.title}\n  Pains: ${(p.pain_points as string[] ?? []).join(' | ')}\n  Motivations: ${(p.motivations as string[] ?? []).join(' | ')}`).join('\n\n')}
-
-## ICP × PERSONA COMBINATIONS (priority order)
-${combos.map(c => `${c.icp} × ${c.persona} [${c.priority}] — ${c.rationale}`).join('\n')}
-${sourcingContext}
-
-## MESSAGING DIRECTION (from strategy)
-Core angle: ${messaging.core_angle || ''}
-Proof narrative: ${messaging.proof_narrative || ''}
-Tone: ${messaging.tone_instructions || ''}
+## VERTICAL MAP
+${verticalMap.map(v => `${v.vertical_key}: customer_term="${verticalCustomerTerms[v.vertical_key as string] ?? v.customer_term}", expert_term="${verticalExpertTerms[v.vertical_key as string] ?? v.expert_term}"
+  Vertical pain: ${v.vertical_pain}`).join('\n\n')}
 
 ## PROOF ASSETS
 ${proofAssets.map(p => `[${p.type}] ${p.description} (use for: ${p.use_for})`).join('\n')}
 
-## ENTRY OFFERS
-${entryOffers.map(e => `${e.name}: ${e.description}\n  Fits: ${(e.fits_icp as string[] ?? []).join(', ')}\n  Hook: ${e.conversion_hook}`).join('\n\n')}
+## MESSAGING DIRECTION
+Core angle: ${messagingDirection.core_angle || ''}
+Proof narrative: ${messagingDirection.proof_narrative || ''}
+Tone: ${messagingDirection.tone_instructions || ''}
 
-Now produce the complete messaging layer document JSON. Focus on the top 2-3 ICP × persona combinations. Each hook should be a concrete opening sentence (not a placeholder). Subject lines should be 2-5 words, lowercase, no punctuation. Copy angles should be tight (target 65 words).
-`.trim()
-}
+## CELLS TO GENERATE MESSAGING FOR (${cells.length} sourcing-approved cells)
+${JSON.stringify(cells.map(c => ({
+    cell_code: c.cell_code,
+    solution_key: c.solution_key,
+    icp_key: c.icp_key,
+    vertical_key: c.vertical_key,
+    persona_key: c.persona_key,
+    trigger_event_classes: c.trigger_event_classes,
+    customer_term: verticalCustomerTerms[c.vertical_key] ?? null,
+    expert_term: verticalExpertTerms[c.vertical_key] ?? null,
+    persona_verbs: personaStartVerbs[c.persona_key] ?? [],
+    estimated_addressable_accounts: c.estimated_addressable_accounts,
+    sourcing_findings_summary: c.sourcing_findings_summary,
+  })), null, 2)}
 
-function buildMessagingDocContent(clientName: string, messagingDoc: Record<string, unknown>): string {
-  const lines: string[] = []
-
-  lines.push(`MESSAGING STRATEGY DOCUMENT`)
-  lines.push(`Client: ${clientName}`)
-  lines.push(`Generated: ${messagingDoc.generated_at || new Date().toISOString()}`)
-  lines.push(``)
-
-  const strategy = (messagingDoc.messaging_strategy as Record<string, unknown>) ?? {}
-  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-  lines.push(`MESSAGING STRATEGY`)
-  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-  lines.push(`Core Narrative: ${strategy.core_narrative || ''}`)
-  lines.push(`Primary Angle: ${strategy.primary_angle || ''}`)
-  lines.push(``)
-
-  const secondaryAngles = (strategy.secondary_angles as string[]) ?? []
-  if (secondaryAngles.length > 0) {
-    lines.push(`Secondary Angles (for A/B testing):`)
-    secondaryAngles.forEach((a, i) => lines.push(`  ${i + 1}. ${a}`))
-    lines.push(``)
-  }
-
-  lines.push(`Proof Strategy: ${strategy.proof_strategy || ''}`)
-  lines.push(``)
-
-  const angleDirections = (messagingDoc.angle_directions as Array<Record<string, unknown>>) ?? []
-  if (angleDirections.length > 0) {
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    lines.push(`ANGLE DIRECTIONS BY ICP × PERSONA`)
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    angleDirections.forEach(ad => {
-      lines.push(`${ad.icp} × ${ad.persona}`)
-      lines.push(`  Angle: ${ad.angle || ''}`)
-      lines.push(`  Hook Idea: ${ad.hook_idea || ''}`)
-      lines.push(`  Proof to Use: ${ad.proof_to_use || ''}`)
-      lines.push(`  Tone: ${ad.tone_note || ''}`)
-      lines.push(``)
-    })
-  }
-
-  const proofUsage = (messagingDoc.proof_usage_by_segment as Array<Record<string, unknown>>) ?? []
-  if (proofUsage.length > 0) {
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    lines.push(`PROOF USAGE BY SEGMENT`)
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    proofUsage.forEach(p => {
-      lines.push(`${p.segment}`)
-      const proofPoints = (p.proof_points as string[]) ?? []
-      if (proofPoints.length > 0) {
-        lines.push(`  Use: ${proofPoints.join(' | ')}`)
-      }
-      const avoid = (p.avoid as string[]) ?? []
-      if (avoid.length > 0) {
-        lines.push(`  Avoid: ${avoid.join(' | ')}`)
-      }
-      lines.push(``)
-    })
-  }
-
-  const toneGuide = (messagingDoc.tone_guide as Record<string, unknown>) ?? {}
-  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-  lines.push(`TONE GUIDE`)
-  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-  lines.push(`Overall: ${toneGuide.overall || ''}`)
-  lines.push(``)
-
-  const toneDo = (toneGuide.do as string[]) ?? []
-  if (toneDo.length > 0) {
-    lines.push(`Do:`)
-    toneDo.forEach(d => lines.push(`  ✓ ${d}`))
-    lines.push(``)
-  }
-
-  const toneDont = (toneGuide.dont as string[]) ?? []
-  if (toneDont.length > 0) {
-    lines.push(`Don't:`)
-    toneDont.forEach(d => lines.push(`  ✗ ${d}`))
-    lines.push(``)
-  }
-
-  const signaturePhrases = (toneGuide.signature_phrases as string[]) ?? []
-  if (signaturePhrases.length > 0) {
-    lines.push(`Signature Phrases:`)
-    signaturePhrases.forEach(p => lines.push(`  "${p}"`))
-    lines.push(``)
-  }
-
-  const hookVariants = (messagingDoc.hook_variants as Array<Record<string, unknown>>) ?? []
-  if (hookVariants.length > 0) {
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    lines.push(`HOOK VARIANTS`)
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    hookVariants.forEach(hv => {
-      lines.push(`${hv.icp_persona}`)
-      const hooks = (hv.hooks as Array<Record<string, unknown>>) ?? []
-      hooks.forEach((h, i) => {
-        lines.push(`  ${i + 1}. "${h.text}"`)
-        lines.push(`     Angle: ${h.angle || ''}`)
-        lines.push(`     Note: ${h.note || ''}`)
+## PER-CELL GRAMMAR CONSTRAINTS
+${cells.map(c => {
+    try {
+      const resolved = resolveFormula({
+        persona_key: c.persona_key as Parameters<typeof resolveFormula>[0]['persona_key'],
+        vertical_key: c.vertical_key as Parameters<typeof resolveFormula>[0]['vertical_key'],
+        signal_tier: 3 as const,
+        archetype: 'matrix_driven',
+        synthesis_context: {
+          proof_assets: proofAssets as Array<{ type: string; description: string; use_for: string }>,
+          company_thesis: synthesis.company_thesis as string,
+        },
       })
-      lines.push(``)
-    })
-  }
+      return `[${c.cell_code}]
+${resolved.system_prompt_constraints}`
+    } catch {
+      return `[${c.cell_code}] (constraints unavailable)`
+    }
+  }).join('\n')}
 
-  const subjectLines = (messagingDoc.subject_lines as Array<Record<string, unknown>>) ?? []
-  if (subjectLines.length > 0) {
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    lines.push(`SUBJECT LINES`)
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    subjectLines.forEach(sl => {
-      lines.push(`${sl.icp_persona}`)
-      const subjects = (sl.subjects as string[]) ?? []
-      subjects.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
-      lines.push(``)
-    })
-  }
-
-  const copyAngles = (messagingDoc.copy_angles as Array<Record<string, unknown>>) ?? []
-  if (copyAngles.length > 0) {
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    lines.push(`COPY ANGLES`)
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-    copyAngles.forEach(ca => {
-      lines.push(`${ca.icp_persona} — ${ca.angle_name}`)
-      lines.push(`Opening: ${ca.opening || ''}`)
-      lines.push(`Body Direction: ${ca.body_direction || ''}`)
-      lines.push(`CTA: ${ca.cta || ''}`)
-      lines.push(`Target: ${ca.word_count_target || 65} words`)
-      lines.push(``)
-    })
-  }
-
-  return lines.join('\n')
+Now produce the complete per-cell messaging JSON array. Include ALL ${cells.length} cells.`.trim()
 }
+
+// ── Doc block builder ────────────────────────────────────────────────────────
+
+function buildMessagingDocBlocks(
+  clientCode: string,
+  messagingCells: Array<Record<string, unknown>>,
+  generatedAt: string
+): DocBlock[] {
+  const blocks: DocBlock[] = [
+    { style: 'HEADING_1', text: `FASE 2: MESSAGING FRAMEWORK — ${clientCode.toUpperCase()}` },
+    { style: 'NORMAL_TEXT', text: `Generated: ${generatedAt}` },
+    { style: 'NORMAL_TEXT', text: `Cells: ${messagingCells.length}` },
+    { style: 'NORMAL_TEXT', text: '' },
+    { style: 'HEADING_2', text: 'REVIEW INSTRUCTIONS' },
+    { style: 'NORMAL_TEXT', text: 'Each cell below contains two hook frameworks (ERIC and HUIDIG).' },
+    { style: 'NORMAL_TEXT', text: 'After approval, messaging is written into campaign_cells.brief automatically.' },
+    { style: 'NORMAL_TEXT', text: `POST /functions/v1/gtm-approve  { "client_id": "<uuid>", "action": "messaging_approve" }` },
+    { style: 'NORMAL_TEXT', text: '' },
+  ]
+
+  messagingCells.forEach((cell, idx) => {
+    blocks.push(
+      { style: 'HEADING_1', text: `CELL ${idx + 1}: ${cell.cell_code}` },
+      { style: 'NORMAL_TEXT', text: `Solution: ${cell.solution_key} | ICP: ${cell.icp_key} | Vertical: ${cell.vertical_key} | Persona: ${cell.persona_key}` },
+      { style: 'NORMAL_TEXT', text: '' },
+    )
+
+    const hookFrameworks = (cell.hook_frameworks as Array<Record<string, unknown>>) ?? []
+    hookFrameworks.forEach(hf => {
+      blocks.push({ style: 'HEADING_2', text: `${hf.style} FRAMEWORK` })
+      const bullets = (hf.bullets as string[]) ?? []
+      bullets.forEach((b, i) => blocks.push({ style: 'NORMAL_TEXT', text: `${i + 1}. ${b}` }))
+      blocks.push({ style: 'NORMAL_TEXT', text: '' })
+    })
+
+    blocks.push(
+      { style: 'NORMAL_TEXT', text: `CTA: ${(cell.cta_directions as string[] ?? []).join(' | ')}`, bold: true },
+      { style: 'NORMAL_TEXT', text: `Triggers: ${(cell.trigger_alignment as string[] ?? []).join(' | ')}` },
+      { style: 'NORMAL_TEXT', text: `Signal → Pain: ${cell.signal_to_pain_mapping || ''}` },
+      { style: 'NORMAL_TEXT', text: `Proof angle: ${cell.proof_angle || ''}` },
+      { style: 'NORMAL_TEXT', text: `Objection: ${cell.objection_angle || ''}` },
+    )
+    if (cell.notes) blocks.push({ style: 'NORMAL_TEXT', text: `Notes: ${cell.notes}` })
+    blocks.push({ style: 'NORMAL_TEXT', text: '' })
+  })
+
+  return blocks
+}
+
+// ── Main handler ────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -438,9 +450,10 @@ serve(async (req) => {
       )
     }
 
+    // Read client metadata
     const { data: client, error: fetchError } = await supabase
       .from('clients')
-      .select('id, name, strategy_synthesis, workflow_metrics')
+      .select('id, name, client_code, workflow_metrics, gtm_execution_review_doc_url')
       .eq('id', client_id)
       .single()
 
@@ -451,43 +464,86 @@ serve(async (req) => {
       )
     }
 
-    if (!client.strategy_synthesis) {
+    // Read synthesis from gtm_strategies (primary source)
+    const { data: strategyRow, error: strategyError } = await supabase
+      .from('gtm_strategies')
+      .select('id, synthesis')
+      .eq('client_id', client_id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (strategyError || !strategyRow?.synthesis) {
       return new Response(
-        JSON.stringify({ success: false, error: 'strategy_synthesis not available' }),
+        JSON.stringify({ success: false, error: 'GTM synthesis not yet available' }),
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    const synthesis = client.strategy_synthesis as Record<string, unknown>
+    const synthesis = strategyRow.synthesis as Record<string, unknown>
+
+    // Read cells that passed sourcing (sourcing_pending = passed gate, sourcing_failed = excluded)
+    // At messaging time, cells that passed sourcing are still in sourcing_pending status.
+    // Cells already enriched (ready) are also included to support re-runs.
+    const { data: cells, error: cellsError } = await supabase
+      .from('campaign_cells')
+      .select('cell_code, solution_key, icp_key, vertical_key, persona_key, brief, status')
+      .eq('client_id', client_id)
+      .in('status', ['sourcing_pending', 'ready'])
+
+    if (cellsError) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Failed to fetch cells: ${cellsError.message}` }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!cells || cells.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'No sourcing-approved cells found — ensure gtm-aleads-source ran and sourcing was approved' }),
+        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const cellInputs: CellInput[] = cells.map(c => {
+      const brief = (c.brief as Record<string, unknown>) ?? {}
+      return {
+        cell_code: c.cell_code,
+        solution_key: c.solution_key,
+        icp_key: c.icp_key,
+        vertical_key: c.vertical_key,
+        persona_key: c.persona_key,
+        trigger_event_classes: (brief.trigger_event_classes as string[]) ?? [],
+        estimated_addressable_accounts: (brief.estimated_addressable_accounts as number | null) ?? null,
+        sourcing_findings_summary: (brief.sourcing_findings_summary as string | null) ?? null,
+        brief,
+      }
+    })
+
     const wm = (client.workflow_metrics as Record<string, unknown>) ?? {}
+    const messagingApproval = (wm.messaging_approval as Record<string, unknown>) ?? {}
+    const currentAttempts = (messagingApproval.attempts as number) ?? 0
+    const isRevision = messagingApproval.status === 'rejected'
     const now = new Date().toISOString()
 
-    const messagingApproval = (wm.messaging_approval as Record<string, unknown>) ?? {}
-    const isRevision = messagingApproval.status === 'rejected'
-    const currentAttempts = (messagingApproval.attempts as number) ?? 0
+    console.log(`[${requestId}] Generating messaging for client ${client_id}: ${cellInputs.length} cells, attempt ${currentAttempts + 1}`)
 
-    // Read sourcing context from previous sourcing step
-    const sourcingReview = (wm.sourcing_review as Record<string, unknown>) ?? {}
-    const sourcingSegments = (sourcingReview.segments as SourcingSegment[]) ?? []
+    const userPrompt = buildUserPrompt(synthesis, cellInputs)
 
-    console.log(`[${requestId}] Generating messaging doc for client ${client_id} (attempt ${currentAttempts + 1}, ${sourcingSegments.length} sourcing segments available)`)
-
-    const userPrompt = buildUserPrompt(synthesis, sourcingSegments)
-
-    const combinedPrompt = `${SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`
-
-    const chatResponse = await fetch(KIMI_MESSAGES_URL, {
+    const chatResponse = await fetch(`${KIMI_BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': KIMI_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${KIMI_API_KEY}`,
       },
       body: JSON.stringify({
         model: MESSAGING_MODEL,
-        messages: [{ role: 'user', content: combinedPrompt }],
-        max_tokens: 6000,
-        temperature: 0.4,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 12000,
+        temperature: 0.3,
       }),
     })
 
@@ -501,10 +557,10 @@ serve(async (req) => {
     }
 
     const chatData = await chatResponse.json() as {
-      content?: Array<{ type: string; text?: string }>
+      choices?: Array<{ message: { content: string } }>
     }
 
-    const rawContent = chatData.content?.[0]?.text
+    const rawContent = chatData.choices?.[0]?.message?.content
     if (!rawContent) {
       return new Response(
         JSON.stringify({ success: false, error: 'LLM returned empty response' }),
@@ -512,51 +568,59 @@ serve(async (req) => {
       )
     }
 
-    let messagingDoc: Record<string, unknown>
+    let messagingCells: Array<Record<string, unknown>>
     try {
-      const jsonMatch = rawContent.match(/```(?:json)?\n?([\s\S]*?)\n?```/) || rawContent.match(/(\{[\s\S]*\})/)
+      const jsonMatch = rawContent.match(/```(?:json)?\n?([\s\S]*?)\n?```/) || rawContent.match(/(\[[\s\S]*\])/)
       const jsonStr = jsonMatch ? jsonMatch[1] : rawContent
-      messagingDoc = JSON.parse(jsonStr)
+      messagingCells = JSON.parse(jsonStr)
+      if (!Array.isArray(messagingCells)) throw new Error('Expected JSON array')
     } catch {
+      console.error(`[${requestId}] Failed to parse LLM JSON output`)
       return new Response(
-        JSON.stringify({ success: false, error: 'LLM output is not valid JSON', raw: rawContent.substring(0, 500) }),
+        JSON.stringify({ success: false, error: 'LLM output is not a valid JSON array', raw: rawContent.substring(0, 500) }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    messagingDoc.generated_at = now
-
-    // ── Create Google Doc ────────────────────────────────────────────────────
+    // ── Append fase 2 to Execution Review doc (or create standalone fallback) ─
     const oauthConfigJson = Deno.env.get('GOOGLE_OAUTH_CONFIG')
     const serviceAccountJson = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     const googleFolderId = Deno.env.get('GOOGLE_DRIVE_FOLDER_ID')
     const googleConfigured = !!(oauthConfigJson || serviceAccountJson)
 
-    let docUrl: string | null = null
+    const clientCode = String((client as Record<string, unknown>).client_code ?? client.name ?? 'CLIENT')
+    const existingDocUrl = String((client as Record<string, unknown>).gtm_execution_review_doc_url ?? '')
+    let docUrl: string | null = existingDocUrl || null
 
     if (googleConfigured) {
-      const title = `Messaging Strategy — ${client.name}`
-      const content = buildMessagingDocContent(client.name, messagingDoc)
+      const blocks = buildMessagingDocBlocks(clientCode, messagingCells, now)
 
       try {
-        let accessToken: string
-        if (oauthConfigJson) {
-          console.log(`[${requestId}] Using OAuth configuration`)
-          accessToken = await getGoogleAccessToken(oauthConfigJson)
+        const accessToken = oauthConfigJson
+          ? await getGoogleAccessToken(oauthConfigJson)
+          : await getGoogleAccessTokenFromServiceAccount(serviceAccountJson!)
+
+        const existingDocId = existingDocUrl ? extractDocId(existingDocUrl) : null
+
+        if (existingDocId) {
+          // Append fase 2 section to existing Execution Review doc
+          await appendToDoc(accessToken, existingDocId, blocks)
+          console.log(`[${requestId}] Fase 2 messaging appended to existing doc: ${existingDocUrl}`)
+          docUrl = existingDocUrl
         } else {
-          console.log(`[${requestId}] Using Service Account configuration (legacy)`)
-          accessToken = await getGoogleAccessTokenFromServiceAccount(serviceAccountJson!)
+          // No execution review doc yet — create standalone messaging doc as fallback
+          const title = `${clientCode} | Execution Review`
+          docUrl = await createGoogleDoc(accessToken, title, blocks, googleFolderId)
+          console.log(`[${requestId}] Standalone messaging doc created: ${docUrl}`)
         }
-        docUrl = await createGoogleDoc(accessToken, title, content, googleFolderId)
-        console.log(`[${requestId}] Google Doc created: ${docUrl}`)
       } catch (err) {
-        console.error(`[${requestId}] Google Doc creation failed:`, (err as Error).message)
+        console.error(`[${requestId}] Google Doc operation failed:`, (err as Error).message)
       }
     } else {
-      console.warn(`[${requestId}] Google auth not configured — skipping doc creation`)
+      console.warn(`[${requestId}] Google auth not configured — skipping doc operation`)
     }
 
-    // Update DB
+    // ── Store messaging output in workflow_metrics ──────────────────────────
     const updatedWm = {
       ...wm,
       messaging_approval: {
@@ -566,14 +630,20 @@ serve(async (req) => {
         attempts: isRevision ? currentAttempts + 1 : Math.max(currentAttempts, 1),
         decided_at: null,
         last_feedback: messagingApproval.last_feedback ?? null,
+        cell_count: messagingCells.length,
       },
+      messaging_output: messagingCells,  // Per-cell messaging — read by gtm-campaign-cell-enrich
     }
 
     const updatePayload: Record<string, unknown> = {
       stage: 'messaging_approval',
       workflow_metrics: updatedWm,
     }
-    if (docUrl) updatePayload.messaging_doc_url = docUrl
+    // messaging_doc_url points to the Execution Review doc (same doc, fase 2 appended)
+    if (docUrl) {
+      updatePayload.messaging_doc_url = docUrl
+      if (!existingDocUrl) updatePayload.gtm_execution_review_doc_url = docUrl
+    }
 
     const { error: updateError } = await supabase
       .from('clients')
@@ -588,7 +658,7 @@ serve(async (req) => {
       )
     }
 
-    // Notify via Slack
+    // ── Notify via Slack ────────────────────────────────────────────────────
     const slackBotToken = Deno.env.get('SLACK_BOT_TOKEN')
     const slackChannel = Deno.env.get('SLACK_TEST_CHANNEL')
 
@@ -598,22 +668,30 @@ serve(async (req) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${slackBotToken}` },
         body: JSON.stringify({
           channel: slackChannel,
-          text: `Messaging doc ready for review: ${client.name}`,
+          text: `Messaging framework ready for review: ${client.name}`,
           blocks: [{
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `*Messaging Document — Review Required*\n\nClient: *${client.name}*\n\nApprove via:\n\`\`\`POST /functions/v1/gtm-approve\n{ "client_id": "${client_id}", "action": "messaging_approve" }\`\`\``,
+              text: `*Messaging Framework — Review Required*\n\nClient: *${client.name}*\nCells: ${messagingCells.length}\n${docUrl ? `Doc: ${docUrl}\n` : ''}
+Approve via:
+\`\`\`POST /functions/v1/gtm-approve
+{ "client_id": "${client_id}", "action": "messaging_approve" }\`\`\``,
             },
           }],
         }),
       }).catch(err => console.error(`[${requestId}] Slack notify failed:`, err.message))
     }
 
-    console.log(`[${requestId}] Messaging doc generated for client ${client_id}`)
+    console.log(`[${requestId}] Messaging doc generated for client ${client_id}: ${messagingCells.length} cells`)
 
     return new Response(
-      JSON.stringify({ success: true, client_id, request_id: requestId }),
+      JSON.stringify({
+        success: true,
+        client_id,
+        cells_generated: messagingCells.length,
+        request_id: requestId,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 

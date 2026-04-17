@@ -92,22 +92,28 @@ When there's no clear buyer title:
 
 ### Signal Tiers
 
-Signal tier bepaalt send mode, CTA-keuze, sequence lengte, en kill logic per cell.
+Signal tier bepaalt hook_variant, offer_variant, cta_variant, sequence lengte, en kill logic per cell.
 
 ```
 Tier 1   High intent trigger
          Actief signaal, bewijs van urgentie nu.
          Voorbeelden: recent funding, active hiring voor target rol, product launch, churn reviews.
-         → Directe CTA (meeting/call), korte sequence (2-3 stappen)
+         → hook_variant: signal_observation
+         → offer_variant: outcome_led
+         → cta_variant: direct_meeting of info_send, korte sequence (2-3 stappen)
 
 Tier 2   Warm trigger / problem evidence
          Indirect bewijs van relevant probleem.
          Voorbeelden: headcount groei, tech stack hints, G2 reviews, nieuws.
-         → info_send of case_study_send CTA, standaard sequence
+         → hook_variant: signal_observation of poke_the_bear
+         → offer_variant: outcome_led of problem_led
+         → cta_variant: info_send of case_study_send, standaard sequence
 
 Tier 3   Qualified no trigger
          Firmografisch fit, geen zichtbaar signaal gevonden.
-         → Langere nurture sequence, HUIDIG-frames, lagere CTA drempel, ruimere pilotperiode
+         → hook_variant: problem_hypothesis of proof_led
+         → offer_variant: problem_led of outcome_led
+         → cta_variant: soft_confirm of info_send, langere sequence, ruimere pilotperiode
 
 Tier 4   Experimental hypothesis
          Onzeker fit — nieuwe vertical of ICP die nog niet bewezen is.
@@ -119,31 +125,61 @@ Tier 4   Experimental hypothesis
 - Tier 3 cells → start pas na Tier 1/2 baseline data (2+ weken)
 - Tier 4 → apart gemarkeerd in campaign_cells.brief, nooit tegelijk met Tier 1/2 schalen
 
-### Send Mode
+## Hook Variants, Offer Variants & CTA Variants
 
-Send mode bepaalt de aard van de CTA. Ingesteld per cell in `campaign_cells.brief.cta_directions`.
+### Hook Variants (opening frame)
 
-```
-direct_meeting   "Heb je 15 minuten?" — alleen Tier 1 signals
-info_send        "Kan ik je [resource/case study] sturen?" — Tier 1/2
-case_study_send  "Stuur je een vergelijkbare case?" — Tier 2
-nurture          Geen directe CTA — Tier 3, langere sequence
-```
+| Variant             | When to use                                              |
+|---------------------|----------------------------------------------------------|
+| signal_observation  | Tier 1/2 — open with the specific trigger observed       |
+| data_observation    | data_driven — open with dataset fact / benchmark gap     |
+| problem_hypothesis  | Tier 3 — hypothesize the pain without confirmed signal   |
+| poke_the_bear       | Tier 2/3 — provocative observation to surface the pain   |
+| benchmark_gap       | Any — open with industry/competitor benchmark difference |
+| proof_led           | Any — open with case study / result / proof point        |
 
-**CTA-lock tijdens H1/F1:** alleen `info_send` of `case_study_send`. Geen directe meeting-CTA tot na F1 winner. (Authoritative: ROADMAP.md test discipline.)
+proof_led as hook: the opening starts with proof, case, benchmark, or precedent.
 
-### Offer Mode
+### Offer Variants (value prop framing)
 
-Offer mode bepaalt het frame van de waardepropositie.
+| Variant        | When to use                                                  |
+|----------------|--------------------------------------------------------------|
+| outcome_led    | Result central — "23% churn reduction in 90d"               |
+| problem_led    | Pain central — "your team is doing X manually"              |
+| insight_led    | Observation central — "companies hiring for X usually see Y" |
+| proof_led      | Evidence central — competitor/client precedent               |
+| diagnostic_led | Question central — "what's your current X?"                 |
 
-```
-outcome_led      Resultaat centraal    "23% churn reduction in 90 days"
-problem_led      Pain centraal         "Your team is doing X manually"
-insight_led      Observatie centraal   "Companies hiring for X usually see Y"
-social_proof_led Bewijs centraal       "Competitor X reduced cost by Y"
-```
+proof_led as offer: the value prop is framed via proof, precedent, or social proof.
 
-Offer mode kiest je op basis van: beschikbaar bewijs, signaal type, en persona. Outcome_led werkt alleen met harde metrics. Bij geen bewijs: insight_led of problem_led.
+### CTA Variants
+
+| Variant          | Signal tier | When to use                            |
+|------------------|-------------|----------------------------------------|
+| direct_meeting   | Tier 1      | High-intent signal, clear urgency      |
+| info_send        | Tier 1/2    | Default H1/F1 CTA-lock                 |
+| case_study_send  | Tier 2      | Social proof CTA for warm triggers     |
+| diagnostic_offer | data_driven | Dataset-led diagnostic question        |
+| soft_confirm     | Tier 3      | Low-friction confirmation for cold     |
+
+**CTA-lock tijdens H1/F1:** alleen `info_send` of `case_study_send`. Geen `direct_meeting` tot na F1 winner. (Authoritative: ROADMAP.md test discipline.)
+
+### Default variant sets per campaign_archetype
+
+matrix_driven:
+  hooks: signal_observation, problem_hypothesis, benchmark_gap
+  offers: outcome_led, problem_led
+  CTAs: info_send, case_study_send (H1/F1 lock)
+
+data_driven:
+  hooks: data_observation, benchmark_gap
+  offers: diagnostic_led, insight_led
+  CTAs: diagnostic_offer, soft_confirm
+
+signal_driven:
+  hooks: signal_observation
+  offers: outcome_led
+  CTAs: direct_meeting (Tier 1), info_send (Tier 2)
 
 ---
 
@@ -177,7 +213,7 @@ Signal hunting by target function:
 
 **Decision tree:**
 - Found Tier 1 or 2 signal → Write the email
-- Found only Tier 3 → Use whole-offer strategy
+- Found only Tier 3 → fallback: hook_variant = problem_hypothesis or proof_led, offer_variant = problem_led or outcome_led, cta_variant = soft_confirm or info_send
 - Found nothing after 10 min → Skip or use fallback campaign
 
 ### Custom Signal Categories (for Clay enrichment)
@@ -205,7 +241,7 @@ Signal hunting by target function:
 2. **Plain text only** — no images, PDFs, or links in first email
 3. **Never start with "I"** — start with THEM
 4. **One CTA per email** — reply in 5 words or less
-5. **Subject lines: 1-4 words** (or whole-offer approach)
+5. **Subject lines: 1-4 words** (or proof_led/problem_hypothesis approach)
 6. **No fluff**: Delete "I hope this finds you well", "I wanted to reach out", "We help companies..."
 7. **Spintax everything**: Even signatures, to create natural variation
 8. **Don't track opens**: Unreliable data + hurts deliverability
@@ -242,7 +278,7 @@ When your service applies universally but companies do different things:
 - Test: Can a colleague or customer send this? If yes, good.
 - Best-ever example: "pizza orders" (for pizza restaurants about increasing orders)
 
-**Approach B: Whole Offer in Subject + Preview** — Best with limited data
+**Approach B: Offer in Subject + Preview** — Best with limited data (proof_led or problem_hypothesis hook)
 - Subject: "Ever chase renters to pay on time?"
 - Preview: "We built a platform that rewards renters for paying on time"
 
@@ -348,8 +384,11 @@ working in the {{industry}} industry.
 ```
 **Critical**: Ideas must be credible (feature-constrained) and specific to them.
 
-### 3. Whole Offer Campaign
-**When**: Limited data or self-selecting offer
+### 3. Fallback Variant Campaign (proof_led / problem_hypothesis)
+**When**: Limited data or self-selecting offer (Tier 3 / data_driven archetype)
+- hook_variant: problem_hypothesis or proof_led
+- offer_variant: problem_led or outcome_led
+- cta_variant: soft_confirm or info_send
 - Subject: Describes the pain/outcome (can be longer than 4 words)
 - Preview text: Completes the offer
 - Body: Explain offer, add light personalization if possible
@@ -397,7 +436,7 @@ Short sequences work best. If someone follows up in a thread multiple times, it'
 - **New subject line** (fresh thread)
 - Different case study or angle
 - Consider dropping ALL AI personalization
-- Whole-offer strategy (punchy + direct)
+- hook_variant = proof_led or problem_hypothesis, offer_variant = problem_led, cta_variant = soft_confirm (punchy + direct)
 - Could reference their colleagues: "Let me know if {{employee_1}} or {{employee_2}} would be better"
 
 ### Email 4 (Day 11-12) — Breakup / Value-add
@@ -661,7 +700,7 @@ For every client, answer:
 | Personalization Quality | 20 pts | Custom signal OR AI insight? |
 | CTA Effort | 15 pts | 5 words or less to reply? |
 | Punchiness | 10 pts | 50-90 words? No fluff? |
-| Subject Line | 5 pts | 2-4 words OR whole offer? |
+| Subject Line | 5 pts | 2-4 words OR proof_led/problem_hypothesis? |
 
 **85+ = Ship it | 70-84 = Needs one more pass | <70 = Start over**
 

@@ -43,7 +43,7 @@ intake → exa research → synthesis (gtm_strategies) → internal doc → exte
   → execution review doc fase 2 (messaging appended)
   → messaging_approve
   → enrichment (messaging terugschrijven in cells, status=ready)
-  → checkLiveTestReadiness → live execution (H1 → F1 → CTA1)
+  → checkLiveTestReadiness (G0 gate: deliverability + sourcing + messaging QA) → live execution (H1 → F1 → CTA1)
 ```
 
 ### Execution rules (non-negotiable)
@@ -68,63 +68,72 @@ intake → exa research → synthesis (gtm_strategies) → internal doc → exte
 
 Het archetype bepaalt de campaign architectuur — niet de hook zelf. Archetype kiest de sourcing strategie, list-type, en activatievolgorde van cells.
 
-```
-matrix_driven    Volledige persona × vertical × solution matrix.
-                 Alle combos seeded als cells. Winners via pilotdata.
-                 Standaard voor nieuwe clients na synthesis.
-                 Sourcing: A-Leads bulk per ICP segment.
+**matrix_driven:**
+- Source: synthesis → campaign_matrix_seed
+- Cell creation: synthesis → matrix → cells → sourcing → formula_resolver → messaging
+- Default hooks: signal_observation, problem_hypothesis, benchmark_gap
+- Default offers: outcome_led, problem_led
+- Default CTAs: info_send, case_study_send (CTA-lock during H1/F1)
+- Sourcing: A-Leads bulk per ICP segment
 
-data_driven      Op basis van beschikbare data (SDE-register, imports, CSV).
-                 Geen synthesis vereist. Cells aangemaakt vanuit de dataset zelf.
-                 Bruikbaar voor niche-clients met eigen brondata (Zoncoalitie, etc.).
-                 Sourcing: bulk-import-csv.ts → contacts.custom_variables.
+**data_driven:**
+- Source: dataset (SDE-register, CSV, imports)
+- Cell creation: dataset → account variables → diagnostic cells → diagnostic_resolver → custom_variables → send
+- No synthesis-matrix dependency. No A-Leads sourcing.
+- May reuse client-level strategy context (tone, proof boundaries, compliance).
+- Default hooks: data_observation, benchmark_gap
+- Default offers: diagnostic_led, insight_led
+- Default CTAs: diagnostic_offer, soft_confirm
 
-signal_driven    Alleen companies met een actief buy signal worden getarget.
-                 Tier 1/2 signals bepalen welke cells als eerste geactiveerd worden.
-                 Hogere kosten per contact, hogere verwachte conversie.
-                 Sourcing: signal-based filter in A-Leads of handmatig.
-```
+**signal_driven:**
+- Source: companies with active buy signals
+- Cell creation: signal-filtered sourcing → cells → formula_resolver → messaging
+- Default hooks: signal_observation
+- Default offers: outcome_led
+- Default CTAs: direct_meeting (Tier 1), info_send (Tier 2)
+- Hogere kosten per contact, hogere verwachte conversie.
 
-### Send Mode + Offer Mode
+CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` als `cta_variant` (ROADMAP.md authoritative).
 
-`send_mode` en `offer_mode` bepalen wat je stuurt en hoe je het framed. Worden ingesteld per cell in `campaign_cells.brief.cta_directions`.
+### Filter Types
 
-```
-send_mode:
-  direct_meeting   "Heb je 15 minuten?" — Tier 1 signals only
-  info_send        "Kan ik je [resource/case study] sturen?" — Tier 1/2
-  case_study_send  "Stuur je een vergelijkbare case?" — Tier 2
-  nurture          Langere termijn, geen directe CTA — Tier 3
+Three distinct filter types — never conflate:
 
-offer_mode:
-  outcome_led      Resultaat centraal (23% churn reduction in 90 days)
-  problem_led      Pain centraal (your team is doing X manually)
-  insight_led      Observatie centraal (companies hiring for X usually see Y)
-  social_proof_led Bewijs centraal (competitor X reduced cost by Y)
-```
+- **firmographic** = static: sector, FTE, geo (e.g. SaaS, 50-500 FTE, NL/BE)
+- **technographic** = tool stack prerequisite/filter (e.g. Salesforce Service Cloud, Epic, Bullhorn)
+- **live signal** = active trigger/event — evidence of urgency now (e.g. hiring spike, funding round, G2 reviews)
 
-CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` (ROADMAP.md authoritative).
+**Critical:** Salesforce Service Cloud = technographic filter, NOT a live signal.
+This distinction determines signal_tier and cta_variant.
 
-### Signal Tiers (bepalen send mode + CTA-keuze)
+### Signal Tiers (bepalen hook_variant, offer_variant, cta_variant)
+
+Signal tier is dynamisch: starts at 3 (baseline at seeding), can upgrade to 2 or 1 after sourcing/enrichment.
 
 ```
 Tier 1   High intent trigger — actief signaal, bewijs van urgentie nu
          (recent funding, active hiring for target role, product launch, churn reviews)
-         → Directe CTA (meeting / call), kortere sequence
+         → hook_variant = signal_observation
+         → offer_variant = outcome_led
+         → cta_variant = direct_meeting, kortere sequence
 
 Tier 2   Warm trigger / problem evidence — indirect bewijs van relevant probleem
          (headcount groei, tech stack hints, G2 reviews, nieuws)
-         → info_send of case_study_send CTA, standaard sequence
+         → hook_variant = signal_observation of benchmark_gap
+         → offer_variant = outcome_led of problem_led
+         → cta_variant = info_send of case_study_send, standaard sequence
 
 Tier 3   Qualified no trigger — firmografisch fit, geen zichtbaar signaal
          (juiste sector/grootte, niets specifieks gevonden)
-         → Longer nurture sequence, HUIDIG-frames, lagere CTA drempel
+         → fallback variant combinatie: hook_variant = problem_hypothesis of proof_led,
+           offer_variant = problem_led of outcome_led,
+           cta_variant = soft_confirm of info_send
 
 Tier 4   Experimental hypothesis — onzeker fit, nieuwe vertical of ICP
          → Observational only, kleine batch, geen volume tot data bewijst
 ```
 
-Tier wordt bepaald tijdens sourcing / enrichment. Stuurt: `send_mode`, `cta_direction`, welke cells eerst live gaan, en hoe kill logic werkt (Tier 3 cells krijgen ruimere pilotperiode).
+Tier wordt bepaald tijdens sourcing / enrichment. Stuurt: `hook_variant`, `offer_variant`, `cta_variant`, welke cells eerst live gaan, en hoe kill logic werkt (Tier 3 cells krijgen ruimere pilotperiode).
 
 ## Owner
 Sjoerd van Galen — founder of **VGG Acquisition** (B2B lead generation agency).
@@ -141,6 +150,30 @@ Revenue model: retainer + meeting fees + commission on closed deals.
 - **Nederlands** for conversation and explanations
 - **Engels** for code, comments, commit messages, variable names, database columns
 - Direct, geen omhaal. Geen emojis tenzij gevraagd.
+
+## Terminology Freeze
+
+Use exactly — never deviate:
+
+Use                 | Never use
+--------------------|---------------------------------------------------
+campaign_archetype  | campaign_family, motion
+signal_tier         | signal_tier_default
+hook_variant        | —
+offer_variant       | offer_mode
+cta_variant         | send_mode, cta_direction
+matrix_driven       | matrix_solution
+data_driven         | data_led
+signal_driven       | —
+
+Hook variants: signal_observation, data_observation, problem_hypothesis, poke_the_bear, benchmark_gap, proof_led
+Offer variants: outcome_led, problem_led, insight_led, proof_led, diagnostic_led
+CTA variants: direct_meeting, info_send, case_study_send, diagnostic_offer, soft_confirm
+
+proof_led dual use — explicit definitions:
+- hook_variant = proof_led → opening starts with proof, case, benchmark, or proof point
+- offer_variant = proof_led → value prop is framed via proof, precedent, or social proof
+(hook = how you open; offer = how you position the value)
 
 ## Tech Stack
 - **Database**: Supabase (project: `gjhbbyodrbuabfzafzry`, region: West EU Ireland)
@@ -349,9 +382,14 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
   - `icp_key` matches `icp_segments[].key` (firmographic segment slug)
   - `vertical_key` matches `verticals[].key` (sector slug) — NEVER equate with icp_key
   - `snapshot` JSONB (immutable after creation) — frozen copy of strategy data at cell creation
+  - `signal_tier` — INTEGER 1–4, set at seeding (default 3), upgrades after sourcing/enrichment
+  - `hook_variant` — which hook opens the email (signal_observation / data_observation / problem_hypothesis / poke_the_bear / benchmark_gap / proof_led)
+  - `offer_variant` — how the value is positioned (outcome_led / problem_led / insight_led / proof_led / diagnostic_led)
+  - `cta_variant` — what action is requested (direct_meeting / info_send / case_study_send / diagnostic_offer / soft_confirm)
   - `brief` JSONB skeleton (na cell-seed): `target_job_title_families`, `trigger_event_classes`, `aleads_config`, `customer_term`, `expert_term`, `geo`
-  - `brief` JSONB enriched (na messaging_approve): adds `hook_frameworks` (ERIC + HUIDIG), `cta_directions` (locked: info_send / case_study_send during H1/F1), `trigger_alignment`, `signal_to_pain`, `proof_angle`, `objection_angle`, `feasibility_notes`, `estimated_addressable_accounts`
-  - Status: sourcing_pending → sourcing_failed | ready → H1_testing → H1_winner → F1_testing → F1_winner → CTA1_testing → soft_launch → scaling → killed
+  - `brief` JSONB enriched (na messaging_approve): adds `hook_frameworks` (ERIC + HUIDIG), `trigger_alignment`, `signal_to_pain`, `proof_angle`, `objection_angle`, `feasibility_notes`, `estimated_addressable_accounts`, `test_plan` ({ h1_variants, f1_variants, cta1_variants }), `qa` ({ score, layer1_passed, layer1_failures, evaluated_at })
+  - Status: sourcing_pending → sourcing_failed | messaging_revision → ready → H1_testing → H1_winner → F1_testing → F1_winner → CTA1_testing → soft_launch → scaling → killed
+  - `messaging_revision` = messaging generated but failed QA or operator review; cell not yet ready, awaiting correction or regeneration
 
 **No active standalone GTM tables** for solutions, icp_segments, buyer_personas, entry_offers, campaign_runs, campaign_variants. These were dropped and replaced by JSONB in gtm_strategies + campaign_cells.
 
@@ -371,6 +409,23 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
 - **Messaging direction approval** = required before going live
 - **Copy review** = bounded (client sees representative examples, not all live test variants)
 - **Test logic** (H1/F1/CTA1 rotation) = managed internally, not client-facing
+
+### Test Phase Semantics
+
+```
+G0   = readiness gate: deliverability ok + sourcing ok + messaging QA ok + variant sets ready
+H1   = hook_variant test         300 delivered/variant
+F1   = offer_variant + framework test  500 delivered/variant
+CTA1 = cta_variant test          300 delivered/variant
+```
+
+CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` als `cta_variant` waarden.
+
+### Write Flow (non-negotiable)
+
+- `formula_resolver.ts` is pure/read-only logic — schrijft geen state weg
+- `gtm-messaging-doc` schrijft NIET naar campaign_cells execution state — schrijft naar review artifact
+- `gtm-campaign-cell-enrich` schrijft pas na messaging_approve naar campaign_cells (`hook_variant`, `offer_variant`, `cta_variant`, `brief.test_plan`, `brief.qa`)
 
 ### Agent Architecture
 - **Reply pipeline**: EmailBison webhooks → `webhook-emailbison` → stores in email_threads + contacts → DNC entities + Slack

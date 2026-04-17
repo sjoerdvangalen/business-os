@@ -20,12 +20,13 @@ De pipeline produceert:
 ### Authoritative testdiscipline (HIER, niet in AI-output)
 
 ```
-H1:   300 delivered/variant  (hook frames — welk frame opent deuren)
-F1:   500 delivered/variant  (email frameworks — welke structuur converteert)
-CTA1: 300 delivered/variant  (CTA types — welke actie werkt)
+G0   = readiness gate: deliverability ok + sourcing ok + messaging QA ok + variant sets ready
+H1   = hook_variant test         300 delivered/variant
+F1   = offer_variant + framework test  500 delivered/variant
+CTA1 = cta_variant test          300 delivered/variant
 ```
 
-CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send`.
+CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` als `cta_variant` waarden.
 
 ### Write truth
 
@@ -73,12 +74,34 @@ Je bouwt 3 blokken die samenkomen in execution:
          ↓ convergeert
 ┌─────────────────────────────────────────────────────────┐
 │  EXECUTION                                              │
-│  Cells → ERIC+HUIDIG → H1 (300 del./variant) → F1 → CTA1│
+│  Cells → ERIC+HUIDIG → G0 gate → H1 (hook_variant) →   │
+│  F1 (offer_variant) → CTA1 (cta_variant)                │
 │  Kill logic per cell, deliverability gate eerst          │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Einddoel:** Fully automated Business OS waar AI agents campaign monitoring, client reporting, meeting lifecycle, en alert escalation afhandelen — met human-in-the-loop voor key decisions (pausing campaigns, client communication, meeting disputes).
+
+### Data-Driven Execution Path (Zoncoalitie-type)
+
+```
+dataset import (SDE-register, CSV, own data)
+  → account variables (kWp, installaties, niche_vastgoed, etc.)
+  → diagnostic / account-led cells (no synthesis matrix required)
+  → diagnostic_resolver (separate from matrix formula_resolver)
+  → enrichment_profile.prompt_template → contacts.custom_variables (ai_1/ai_2/ai_3)
+  → EmailBison send
+```
+
+Verschil van matrix_driven:
+
+```
+matrix_driven  synthesis → matrix → cells → sourcing → formula_resolver → messaging
+data_driven    dataset → account vars → cells → diagnostic_resolver → custom_vars → send
+```
+
+data_driven does not depend on synthesis matrix or A-Leads sourcing.
+May optionally reuse client-level strategy context (tone, proof, compliance).
 
 ---
 
@@ -157,7 +180,17 @@ Benchmark: SECX → 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT
 
 **Pipeline flow**: synthesis → skeleton cells → sourcing gate → ERIC+HUIDIG messaging → enrich cells → EmailBison
 
-**Test sequence**: H1 (300 delivered/variant) → F1 (500 delivered/variant) → CTA1 (300 delivered/variant) → Scale/Kill
+**Test sequence**: G0 readiness gate → H1 hook_variant (300 delivered/variant) → F1 offer_variant + framework (500 delivered/variant) → CTA1 cta_variant (300 delivered/variant) → Scale/Kill
+
+---
+
+## Sprint 2B — Copy Engine (parallel met GTM Pipeline V2)
+
+- persona_registry.ts + vertical_registry.ts (SECX benchmark → shared library)
+- formula_resolver.ts (constraints + variant sets + defaults)
+- gtm-messaging-doc: formula resolver injectie
+- gtm-campaign-cell-enrich: 2-laags QA rubric (deterministic + LLM)
+- messaging_revision status + Slack alert (`messaging_revision` = messaging generated but failed QA or operator review; awaiting correction or regeneration)
 
 ---
 
@@ -180,10 +213,11 @@ Benchmark: SECX → 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT
 ```
 performance-analyzer     Na eerste H1 run met minimum sample
 daily-digest             Na 2+ clients actief in pipeline
-copy-generator-v2        Na icp-segment-builder approved (Cold Email v2 rubric)
 campaign-optimizer       Na 4+ weken data
 client-report-generator  Na optimizer live
 ```
+
+Note: copy-generator-v2 verplaatst naar Sprint 2B (Copy Engine — parallel met GTM Pipeline V2).
 
 ---
 
@@ -213,9 +247,9 @@ Stap 2 — Messaging/ICP gate (alleen na clean infra):
   Evaluatie: per cell, nooit client-breed
 
   PILOT  → geen kill, observationeel
-  H1     → min 300 delivered/variant → winner op PRR + kwaliteit
-  F1     → min 500 delivered/variant → winner op reply inhoud
-  CTA1   → min 300 delivered/variant → winner op meeting conversion
+  H1     → min 300 delivered/variant → hook_variant winner op PRR + kwaliteit
+  F1     → min 500 delivered/variant → offer_variant + framework winner op reply inhoud
+  CTA1   → min 300 delivered/variant → cta_variant winner op meeting conversion
 ```
 
 ---

@@ -175,6 +175,18 @@ function normalizeRow(
     mapped.full_name = `${mapped.first_name || ''} ${mapped.last_name || ''}`.trim() || null
   }
 
+  // Onbekende kolommen → custom_variables (domain-specifieke template vars)
+  const customVars: Record<string, unknown> = {}
+  for (const [csvCol, value] of Object.entries(row)) {
+    if (!colMap.has(csvCol) && value?.trim()) {
+      const key = csvCol.toLowerCase().trim().replace(/\s+/g, '_')
+      customVars[key] = value.trim()
+    }
+  }
+  if (Object.keys(customVars).length > 0) {
+    mapped.custom_variables = customVars
+  }
+
   return mapped
 }
 
@@ -212,7 +224,7 @@ async function main() {
   }
   const unrecognized = headers.filter(h => !colMap.has(h))
   if (unrecognized.length > 0) {
-    console.log(`Niet herkend: ${unrecognized.slice(0, 5).join(', ')}${unrecognized.length > 5 ? '...' : ''}`)
+    console.log(`Naar custom_variables (${unrecognized.length}): ${unrecognized.slice(0, 8).join(', ')}${unrecognized.length > 8 ? '...' : ''}`)
   }
 
   // Normaliseer rijen

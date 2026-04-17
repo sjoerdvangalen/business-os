@@ -236,7 +236,7 @@ Na deploy van `gtm-campaign-cell-enrich`:
 -- Cells hebben brief met hook_frameworks
 SELECT cell_code, status,
        brief->'hook_frameworks' IS NOT NULL as has_hooks,
-       brief->'cta_directions' IS NOT NULL as has_cta
+       brief->'cta_variant' IS NOT NULL as has_cta
 FROM campaign_cells
 WHERE strategy_id = '<strategy_uuid>';
 
@@ -255,6 +255,49 @@ FROM campaigns c
 WHERE c.client_id = '<uuid>'
 ORDER BY c.created_at DESC LIMIT 10;
 ```
+
+---
+
+## GTM Pipeline V2 Deploy Validation
+
+Run after every migration or edge function deploy that touches the GTM pipeline.
+
+### Schema check
+
+```bash
+source ~/.claude/scripts/load-env.sh
+
+# campaign_cells new columns
+curl -s -X POST "https://api.supabase.com/v1/projects/gjhbbyodrbuabfzafzry/database/query" \
+  -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT column_name FROM information_schema.columns WHERE table_name='\''campaign_cells'\'' AND column_name IN ('\''campaign_archetype'\'','\''signal_tier'\'','\''hook_variant'\'','\''offer_variant'\'','\''cta_variant'\'');"}'
+
+# contacts.enriched_at
+curl -s -X POST "https://api.supabase.com/v1/projects/gjhbbyodrbuabfzafzry/database/query" \
+  -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT column_name FROM information_schema.columns WHERE table_name='\''contacts'\'' AND column_name='\''enriched_at'\'';"}'
+```
+
+### Terminology drift check
+
+```bash
+grep -RniE "send_mode|cta_direction|whole[-_ ]offer|campaign_family|signal_tier_default|offer_mode|data_led|matrix_solution" \
+  CLAUDE.md ROADMAP.md docs/
+# Expected: 0 matches (or only in archived/deprecated context)
+```
+
+### GTM Pipeline V2 gate checklist
+
+- [ ] CLAUDE.md tabellijst matcht live DB
+- [ ] campaign_cells seed werkt: campaign_archetype=matrix_driven, signal_tier=3 (baseline)
+- [ ] hook_variant / offer_variant / cta_variant kolommen bestaan
+- [ ] messaging_revision is toegestaan als cell status
+- [ ] Geen writes naar `clients.gtm_synthesis` (DEPRECATED_READONLY)
+- [ ] gtm-messaging-doc schrijft NIET naar campaign_cells execution state
+- [ ] gtm-campaign-cell-enrich schrijft pas na messaging_approve
+- [ ] SECX dry-run gate na Sprint 2: formula resolver actief, banned adjectives absent, persona verbs correct
 
 ---
 

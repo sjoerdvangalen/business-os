@@ -75,7 +75,7 @@ serve(async (req) => {
       campaign_id,
       cell_id,
       run_type = 'full',
-      steps = ['source', 'validate', 'push'],
+      steps = ['source', 'validate', 'enrich', 'push'],
       dry_run = false,
     } = body;
 
@@ -148,22 +148,28 @@ serve(async (req) => {
     if (steps.includes('validate')) {
       console.log(`[${requestId}] Step: email-waterfall (TryKitt)`);
 
-      // Haal contacts op zonder email
+      // Haal contacts op zonder email (beperkt tot 200 ivm timeout)
       const { data: contactsNoEmail } = await supabase
         .from('contacts')
         .select('id')
         .eq('client_id', client_id)
         .is('email', null)
-        .limit(1000);
+        .limit(200);
 
       if (contactsNoEmail && contactsNoEmail.length > 0) {
         let waterfallSuccess = 0;
-        for (const contact of contactsNoEmail) {
-          const result = await invokeFunction('email-waterfall', {
-            contact_id: contact.id,
-            sourcing_run_id: runId,
-          });
-          if ((result.data as Record<string, unknown>)?.email) waterfallSuccess++;
+        const batchSize = 10;
+        for (let i = 0; i < contactsNoEmail.length; i += batchSize) {
+          const batch = contactsNoEmail.slice(i, i + batchSize);
+          const results = await Promise.all(batch.map(contact =>
+            invokeFunction('email-waterfall', {
+              contact_id: contact.id,
+              sourcing_run_id: runId,
+            })
+          ));
+          for (const result of results) {
+            if ((result.data as Record<string, unknown>)?.email) waterfallSuccess++;
+          }
         }
         log.waterfall = { processed: contactsNoEmail.length, verified: waterfallSuccess };
         console.log(`[${requestId}] Waterfall: ${waterfallSuccess}/${contactsNoEmail.length} verified`);
@@ -191,7 +197,35 @@ serve(async (req) => {
       }
     }
 
-    // 5. EmailBison pusher
+    // 5. AI Enrichment — after validate, before push
+    if (steps.includes('enrich')) {
+      console.log(`[${requestId}] Step: ai-enrich-contact`);
+
+      const { data: contactsToEnrich } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('client_id', client_id)
+        .not('email', 'is', null)
+        .or(`enriched_at.is.null,enriched_at.lt.${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}`)
+        .limit(50);
+
+      if (contactsToEnrich && contactsToEnrich.length > 0) {
+        let enrichedCount = 0;
+        for (const contact of contactsToEnrich) {
+          const result = await invokeFunction('ai-enrich-contact', {
+            contact_id: contact.id,
+            cell_id: cell_id || undefined,
+          });
+          if (result.success) enrichedCount++;
+        }
+        log.enrich = { processed: contactsToEnrich.length, enriched: enrichedCount };
+        console.log(`[${requestId}] Enrichment: ${enrichedCount}/${contactsToEnrich.length} enriched`);
+      } else {
+        log.enrich = { processed: 0, enriched: 0, note: 'no contacts to enrich' };
+      }
+    }
+
+    // 6. EmailBison pusher
     if (steps.includes('push')) {
       console.log(`[${requestId}] Step: emailbison-pusher`);
 
@@ -216,7 +250,7 @@ serve(async (req) => {
       }
     }
 
-    // 6. Update sourcing_run → completed
+    // 7. Update sourcing_run → completed
     await supabase.from('sourcing_runs').update({
       status: 'completed',
       completed_at: new Date().toISOString(),
