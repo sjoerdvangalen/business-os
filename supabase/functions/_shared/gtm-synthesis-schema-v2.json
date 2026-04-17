@@ -1,0 +1,182 @@
+{
+  "_comment": "Canonical schema for gtm_synthesis_v2. Write target: gtm_strategies table. clients.gtm_synthesis = DEPRECATED_READONLY.",
+  "_version": 2,
+  "_rules": [
+    "No pilot_test_logic, sample sizes, or H1/F1/CTA1 counts — those are authoritative in ROADMAP.md",
+    "No priority on cells — all valid cells included, qualification_framework does the filtering",
+    "icp_key and vertical_key are SEPARATE fields — never equate them",
+    "icp_key matches icp_segments[].key (slug), NOT icp_segments[].name",
+    "campaign_matrix_seed.length = valid cells count, NOT personas x verticals x solutions",
+    "No hooks, subject lines, or outreach copy in synthesis",
+    "cta_directions are locked to [info_send, case_study_send] during H1/F1 — do not include in synthesis"
+  ],
+
+  "version": 2,
+  "synthesized_at": "ISO 8601 timestamp",
+
+  "company_thesis": "Sharp 1-sentence summary of what the company does and for whom",
+
+  "solutions": [
+    {
+      "key": "machine-readable-slug",
+      "name": "Solution name",
+      "description": "What it does",
+      "value_proposition": "Core value in 1 sentence",
+      "proof_points": ["Evidence, case studies, outcomes"]
+    }
+  ],
+
+  "qualification_framework": {
+    "firmographic_constraints": {
+      "min_employees": null,
+      "max_employees": null,
+      "geos": ["NL", "BE", "DE"],
+      "industries_include": [],
+      "industries_exclude": []
+    },
+    "hard_requirements": ["Must have X", "Must use Y"],
+    "hard_disqualifiers": ["Has Z", "Uses competitor W"],
+    "soft_signals": ["Hiring for role X", "Recently raised funding"]
+  },
+
+  "icp_segments": [
+    {
+      "key": "machine-readable-slug (e.g. mid-market-staffing-nl)",
+      "name": "Segment name (firmographic profile label)",
+      "geo": "Country/region",
+      "employee_range": "50-500",
+      "industries": ["Industry A", "Industry B"],
+      "signal_hypotheses": ["Observable signals of good prospect"],
+      "sourcing_logic": "How to filter in A-Leads"
+    }
+  ],
+
+  "buyer_personas": [
+    {
+      "title": "Job title",
+      "pain_points": ["What keeps them up at night"],
+      "motivations": ["What they want to achieve"]
+    }
+  ],
+
+  "persona_map": [
+    {
+      "key": "cx",
+      "label": "CX Leadership",
+      "focus_themes": ["experience", "NPS", "satisfaction", "CSAT"],
+      "owns_metric": "CSAT / NPS",
+      "primary_pain": "Describe the observable pain this persona experiences"
+    }
+  ],
+
+  "persona_start_verbs": {
+    "cx": ["Connect", "Elevate", "Reduce"],
+    "ops": ["Route", "Match", "Handle"],
+    "tech": ["Automate", "Integrate", "Deploy"],
+    "csuite": ["Cut", "Scale", "Deliver"]
+  },
+
+  "verticals": [
+    {
+      "key": "staffing",
+      "label": "Staffing & Recruitment",
+      "industries": ["Staffing", "RPO", "Executive Search", "Temp Agencies"]
+    }
+  ],
+
+  "vertical_map": [
+    {
+      "vertical_key": "staffing",
+      "customer_term": "candidates",
+      "expert_term": "recruiters / talent consultants",
+      "vertical_pain": "Describe the pain specific to this vertical (e.g., consultant burnout from manual queue management)"
+    }
+  ],
+
+  "vertical_customer_terms": {
+    "staffing": "candidates",
+    "saas": "users",
+    "financial": "clients",
+    "healthcare": "patients",
+    "manufacturing": "distributors"
+  },
+
+  "vertical_expert_terms": {
+    "staffing": "recruiters / talent consultants",
+    "saas": "product specialists / CSMs",
+    "financial": "private bankers / wealth advisors",
+    "healthcare": "care coordinators / specialists",
+    "manufacturing": "sales engineers / account managers"
+  },
+
+  "proof_assets": [
+    {
+      "type": "case_study | stat | testimonial | partnership | award",
+      "description": "The proof point",
+      "use_for": "Which vertical / persona / stage this proof works best for"
+    }
+  ],
+
+  "value_prop_formula": {
+    "style": "ERIC",
+    "bullet_1_pattern": "[persona_verb] [specific outcome] [via product_mechanism] to [expert_term]",
+    "bullet_2_pattern": "Route/Match/Automate [customer_term] [via mechanism] based on [criterion_A] and [criterion_B]",
+    "bullet_3_pattern": "[Scale/Deliver/Cut] [result] without [vertical_pain] using [product_ai_component]",
+    "product_mechanism": "e.g. intent-level pairing",
+    "product_ai_component": "e.g. AI Supervisor"
+  },
+
+  "campaign_matrix_seed": [
+    {
+      "cell_code": "CLIENT|EN|solution-key|icp-key|vertical-key|persona-key|geo",
+      "solution_key": "machine-readable solution slug",
+      "icp_key": "icp segment key slug (firmographic — matches icp_segments[].key)",
+      "vertical_key": "vertical key (sector — matches verticals[].key)",
+      "persona_key": "persona key (matches persona_map[].key)",
+      "geo": "NLBE | DACH | UK | NA | global",
+      "target_job_title_families": ["VP of CX", "Head of Customer Success", "Director of Support"],
+      "trigger_event_classes": ["hiring_cx_roles", "job_change", "funding", "product_launch"],
+      "estimated_addressable_accounts": null,
+      "feasibility_notes": null,
+      "valid": true
+    }
+  ],
+
+  "messaging_direction": {
+    "core_angle": "Single most compelling outbound angle for this client",
+    "proof_narrative": "How to weave proof without being salesy",
+    "tone_instructions": "Specific tone guidance for copy team"
+  },
+
+  "research_context": {
+    "company_overview": "Synthesized overview from Exa research",
+    "competitive_landscape": "Key competitors and how client differentiates",
+    "market_signals": "Market trends and trigger events relevant to outbound",
+    "product_terminology": {
+      "_note": "Extract exact terms the product uses for mechanisms, features, components",
+      "example_mechanism": "intent-level pairing",
+      "example_ai_component": "AI Supervisor",
+      "example_platform": "Service Cloud"
+    },
+    "vertical_terminology": {
+      "_note": "Per-vertical customer and expert terms extracted from research — used in messaging",
+      "staffing": {
+        "customer_term": "candidates",
+        "expert_term": "recruiters / talent consultants"
+      }
+    },
+    "exa_sources": ["URLs or source descriptions from Exa research"]
+  },
+
+  "risks_and_assumptions": [
+    {
+      "type": "risk | assumption",
+      "description": "What it is",
+      "mitigation": "How to handle or validate"
+    }
+  ],
+
+  "open_questions": ["Questions that need answers before or during execution"],
+
+  "internal_notes": "Notes for internal use — not included in external doc"
+}
