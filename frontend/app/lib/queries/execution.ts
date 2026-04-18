@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { ExecutionJob, Lead, Meeting, Campaign } from '@/app/types'
 
 /**
@@ -11,9 +11,7 @@ export async function getExecutionJobs(options?: {
   source?: string
   limit?: number
 }): Promise<ExecutionJob[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('sync_log')
     .select('*')
     .order('created_at', { ascending: false })
@@ -92,10 +90,8 @@ export async function getClientExecutionActivity(clientCode: string): Promise<{
     repliesToday: number
   }
 }> {
-  const supabase = await createClient()
-
   // Get client ID
-  const { data: client, error: clientError } = await supabase
+  const { data: client, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('code', clientCode.toUpperCase())
@@ -128,7 +124,7 @@ export async function getClientExecutionActivity(clientCode: string): Promise<{
   const weekAgoIso = weekAgo.toISOString()
 
   // Fetch recent leads
-  const { data: recentLeads } = await supabase
+  const { data: recentLeads } = await supabaseAdmin
     .from('leads')
     .select(`
       *,
@@ -142,7 +138,7 @@ export async function getClientExecutionActivity(clientCode: string): Promise<{
     .limit(10)
 
   // Fetch recent meetings
-  const { data: recentMeetings } = await supabase
+  const { data: recentMeetings } = await supabaseAdmin
     .from('meetings')
     .select(`
       *,
@@ -155,7 +151,7 @@ export async function getClientExecutionActivity(clientCode: string): Promise<{
     .limit(10)
 
   // Fetch recent replies (inbound email_threads)
-  const { data: recentReplies } = await supabase
+  const { data: recentReplies } = await supabaseAdmin
     .from('email_threads')
     .select(`
       id,
@@ -171,25 +167,25 @@ export async function getClientExecutionActivity(clientCode: string): Promise<{
     .limit(10)
 
   // Get stats
-  const { count: leadsToday } = await supabase
+  const { count: leadsToday } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
     .gte('created_at', todayIso)
 
-  const { count: leadsThisWeek } = await supabase
+  const { count: leadsThisWeek } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
     .gte('created_at', weekAgoIso)
 
-  const { count: meetingsThisWeek } = await supabase
+  const { count: meetingsThisWeek } = await supabaseAdmin
     .from('meetings')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
     .gte('created_at', weekAgoIso)
 
-  const { count: repliesToday } = await supabase
+  const { count: repliesToday } = await supabaseAdmin
     .from('email_threads')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
@@ -221,8 +217,6 @@ export async function getExecutionMetrics(): Promise<{
   warmupHealth: number
   inboxHealth: number
 }> {
-  const supabase = await createClient()
-
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const todayIso = today.toISOString()
@@ -233,14 +227,14 @@ export async function getExecutionMetrics(): Promise<{
   const weekAgoIso = weekAgo.toISOString()
 
   // Get active campaigns count
-  const { count: activeCampaigns } = await supabase
+  const { count: activeCampaigns } = await supabaseAdmin
     .from('campaigns')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'active')
 
   // Get email stats - Note: These would typically come from email_threads or campaign stats
   // For now, we'll aggregate from campaigns
-  const { data: campaignStats } = await supabase
+  const { data: campaignStats } = await supabaseAdmin
     .from('campaigns')
     .select('total_sent, total_replied')
     .eq('status', 'active')
@@ -249,7 +243,7 @@ export async function getExecutionMetrics(): Promise<{
   const totalReplied = campaignStats?.reduce((sum, c) => sum + (c.total_replied || 0), 0) || 0
 
   // Get inbox health
-  const { data: inboxStats } = await supabase
+  const { data: inboxStats } = await supabaseAdmin
     .from('email_inboxes')
     .select('status, warmup_score')
 
@@ -284,10 +278,8 @@ export async function getCampaignExecutionQueue(): Promise<Array<{
   issues: string[]
   recommendations: string[]
 }>> {
-  const supabase = await createClient()
-
   // Get campaigns with health issues
-  const { data: unhealthyCampaigns } = await supabase
+  const { data: unhealthyCampaigns } = await supabaseAdmin
     .from('campaigns')
     .select(`
       *,
@@ -360,11 +352,9 @@ export async function getDailyExecutionStats(days: number = 14): Promise<Array<{
   meetings: number
   bounceRate: number
 }>> {
-  const supabase = await createClient()
-
   // This would typically aggregate from email_threads
   // For now, return mock data based on campaign totals
-  const { data: campaigns } = await supabase
+  const { data: campaigns } = await supabaseAdmin
     .from('campaigns')
     .select('total_sent, total_replied, bounce_rate')
     .eq('status', 'active')

@@ -12,7 +12,7 @@ interface ClientLayoutProps {
 
 const tabs = [
   { name: 'Overview', href: '' },
-  { name: 'Onboarding', href: '/onboarding' },
+  { name: 'Projects', href: '/projects' },
   { name: 'Strategy', href: '/strategy' },
   { name: 'Execution Review', href: '/execution-review' },
   { name: 'Cells', href: '/cells' },

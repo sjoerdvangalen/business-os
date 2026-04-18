@@ -40,7 +40,7 @@ Webapp control plane voor onboarding, approvals, execution en infra aansturen zo
 
 ### Client nav
 - Overview
-- Onboarding
+- Projects (replaces Onboarding)
 - Strategy
 - Execution Review
 - Cells
@@ -78,37 +78,19 @@ Client: /clients/[code]/{overview,onboarding,strategy,execution-review,cells,cam
 
 ---
 
-## FASE 2 — CLIENTS OVERVIEW + COMMAND CENTER 🔄
+## FASE 2 — CLIENTS OVERVIEW + COMMAND CENTER ✅
 
 **Doel:** Echte globale operationele overview maken.
 
-**Bouw nu:**
-1. Clients page met tabel:
-   - client name/code
-   - lifecycle status
-   - stage
-   - approval status
-   - active campaigns
-   - healthy inboxes
-   - open alerts
-   - last updated
+**Geleverd:**
+1. Clients page met tabel: name, code, status, stage, approval, campaigns, inboxes, alerts
+2. Command Center met KPI cards + recent clients list
+3. Alle dashboard pagina's met tabs, client filter, pagination (100/500/1000):
+   - Campaigns, Infrastructure, Meetings, Strategies, Pipeline, Alerts
+4. Infrastructure: fetchAll zonder limiet — alle 5.900+ inboxes zichtbaar
 
-2. Command Center pagina met:
-   - KPI cards
-   - blockers list
-   - approvals queue
-   - live campaigns warning list
-   - agenda/timeline view per client
-
-3. Agenda / timeline component:
-   toon per client milestones:
-   - intake
-   - strategy review
-   - client review
-   - sourcing approval
-   - messaging approval
-   - launch
-   - h1 / f1 / cta1 / scaling
+**Nog te bouwen:**
+- Agenda/timeline component (PortfolioTimeline) — wordt Sprint 2C
 
 **Gebruik:** clients.status, clients.stage, clients.approval_status, workflow_metrics, campaigns/email_inboxes/alerts
 
@@ -116,28 +98,67 @@ Client: /clients/[code]/{overview,onboarding,strategy,execution-review,cells,cam
 
 ---
 
-## FASE 3 — CLIENT OVERVIEW + ONBOARDING WORKFLOW
+## FASE 3 — CLIENT WORKSPACE + PROJECTS SHELL
 
-**Doel:** Per client een echte workflow cockpit maken.
+**Doel:** Per client een echte workflow cockpit maken. Onboarding wordt een project type binnen Projects.
 
 **Bouw:**
 1. Client Overview pagina met blokken:
    - client summary
    - lifecycle/stage/approval
-   - onboarding progress
+   - projects progress
    - cells summary
    - campaigns summary
    - inbox health
    - recent alerts
    - recent activity
 
-2. Onboarding-tab als workflow engine met 3 macro-kolommen:
-   - Strategy (Intake → Research → Synthesis → Internal Review → Client Review)
-   - Infrastructure (Provider → Domains → Inboxes → Warmup → Infra Ready)
-   - Launch (Skeleton Cells → Execution Review → Sourcing → Messaging → Enrich → Launch → Live)
+2. Projects-tab als operationele container met List / Board / Calendar views:
+   - Derived events uit bestaande tabellen (clients, campaign_cells, campaigns, meetings, alerts, gtm_strategies)
+   - Project types: onboarding, launch_window, test_phase, infra_remediation, meeting_block, strategy_review
+   - Event types: milestone, approval, launch, test_window, meeting, infra_alert, blocker, overdue
+   - Read-only MVP: geen mutaties, alleen weergave van derived data
 
-3. Per card: status, owner, dependency, evidence count, last updated, CTA
-4. Detail drawer per stap: summary, evidence, decision area, audit log
+3. Onboarding workflow (bestaand) migreert naar `project_type: 'onboarding'` binnen Projects
+
+---
+
+## FASE 3B — PROJECTS LIST / BOARD / CALENDAR
+
+**Doel:** Centrale planningslaag voor approvals, launches, testfases, meetings, infra alerts en blockers.
+
+**Bouw:**
+1. Projects List View:
+   - Kolommen: naam, type, status, owner, due date, next milestone, blocker flag, linked cell/campaign
+   - Sorteerbaar, filterbaar (owner, type, status, date range)
+   - Owner filter graceful fallback: verbergen of "Unassigned" als owner_id ontbreekt
+
+2. Projects Board View:
+   - Kolommen: Backlog | In Progress | Review | Done | Blocked
+   - Events gegroepeerd op ProjectEventStatus (UI layer, NIET cell status)
+   - Cell status blijft canonical in campaign_cells
+
+3. Projects Calendar View:
+   - react-big-calendar met date-fns localizer
+   - Month / Week / Day views
+   - Event cards gekleurd op event_type + severity
+   - Calendar sort: ascending (oudste eerst); List sort: descending (nieuwste eerst)
+
+4. ProjectEventDrawer:
+   - Detail paneel: titel, beschrijving, type, status, timeline, linked records
+   - Read-only MVP: geen actieknoppen
+   - Linked records als klikbare badges
+
+5. PortfolioTimeline (Command Center):
+   - Verticale timeline van alle client events
+   - Gegroepeerd per client of per dag
+   - Deelt exact dezelfde selectorlaag als Projects views
+
+**Harde MVP regels:**
+- Read-only: geen mutaties naar Supabase
+- Geen nieuwe DB tabellen: projects / project_events bestaan alleen als frontend types
+- Geen `health_alert` event_type: campaign health mapped naar `infra_alert`
+- Geen supabaseAdmin forceren zonder noodzaak
 
 ---
 
@@ -156,18 +177,19 @@ Client: /clients/[code]/{overview,onboarding,strategy,execution-review,cells,cam
 
 ---
 
-## FASE 5 — CAMPAIGN EXPLORER HIËRARCHIE
+## FASE 5 — CAMPAIGN EXPLORER HIËRARCHIE ✅ (MVP)
 
 **Doel:** Campaigns zichtbaar als boomstructuur zodat EmailBison niet nodig is.
 
-**Bouw:**
-1. Campaigns tab met expandable hierarchy:
-   - campaign group / provider campaign
-   - onderliggend cell campaigns
-   - eventueel inbox attachments als 3e niveau
+**Geleverd:**
+1. Campaigns tab met tabs (all/active/paused/completed/draft/archived), client filter, pagination
+2. Expandable rows met sequences (email steps) en linked campaign_cells
+3. Per row: status, emails_sent, replies, bounces, provider, cell_id
 
-2. Per row: status, desired state, provider state, sync status, inbox count, delivered, replies, meetings, last sync
-3. Filters: live/paused/failed, by stage, by client, by provider state
+**Nog te bouwen:**
+- Desired state / provider state sync indicator
+- Inbox attachments per campaign
+- Direct pause/resume toggle (Fase 6)
 
 ---
 

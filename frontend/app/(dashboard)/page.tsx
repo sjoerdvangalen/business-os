@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -8,6 +8,7 @@ import ClientLineChart from '@/app/components/ClientLineChart'
 import ReplyDonutChart from '@/app/components/ReplyDonutChart'
 import MeetingsAreaChart from '@/app/components/MeetingsAreaChart'
 import ReplyRateChart from '@/app/components/ReplyRateChart'
+import PortfolioTimeline from './_components/PortfolioTimeline'
 
 // Force dynamic rendering (data changes frequently)
 export const dynamic = 'force-dynamic'
@@ -51,8 +52,9 @@ interface SyncError {
 
 interface Alert {
   id: string
-  memory_type: string
-  content: string | null
+  alert_type: string
+  message: string | null
+  severity: string | null
   metadata: Record<string, unknown> | null
   created_at: string
 }
@@ -121,7 +123,7 @@ function getLast14Days(): string[] {
 }
 
 export default async function CommandCenter() {
-  const supabase = await createClient()
+  const supabase = supabaseAdmin
 
   // Fetch all active clients with their campaigns
   const { data: clientsData, error: clientsError } = await supabase
@@ -176,9 +178,8 @@ export default async function CommandCenter() {
 
   // Fetch recent agent alerts
   const { data: alertsData, error: alertsError } = await supabase
-    .from('agent_memory')
+    .from('alerts')
     .select('*')
-    .eq('memory_type', 'ALERT')
     .order('created_at', { ascending: false })
     .limit(5)
 
@@ -321,7 +322,7 @@ export default async function CommandCenter() {
     ...alerts.map(alert => ({
       id: alert.id,
       type: 'Alert' as const,
-      message: alert.content || alert.memory_type,
+      message: alert.message || alert.alert_type,
       time: alert.created_at,
     })),
   ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
@@ -408,6 +409,9 @@ export default async function CommandCenter() {
           </div>
         )}
       </div>
+
+      {/* Portfolio Timeline */}
+      <PortfolioTimeline />
 
       {/* Charts Grid */}
       <div>

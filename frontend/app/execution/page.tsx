@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -102,7 +102,7 @@ function statusIcon(status: string) {
 }
 
 export default async function ExecutionPage() {
-  const supabase = await createClient()
+  const supabase = supabaseAdmin
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)

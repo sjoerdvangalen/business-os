@@ -186,6 +186,37 @@ proof_led dual use — explicit definitions:
 - **Code**: GitHub
 - **Runtime**: Deno at `/Users/sjoerdvangalen/.deno/bin/deno`
 
+## Frontend Dashboard
+
+Next.js 16 App Router met Server Components + Client Components. Alle pagina's gebruiken `dynamic = 'force-dynamic'`.
+
+### Globale pagina's
+- `/` — Command Center (KPI cards, recent clients)
+- `/campaigns` — Campaigns met status tabs, client filter, expandable rows (sequences + cells)
+- `/infrastructure` — Domains + Inboxes tabs, DNS badges, health scores, fetchAll (geen limiet)
+- `/meetings` — Status tabs, attendee info, datumweergave
+- `/strategies` — Approval status tabs, version weergave
+- `/pipeline` — Lifecycle status tabs, stage + approval + infra badges
+- `/alerts` — Severity tabs, resolved filter, time ago
+
+### Client workspace (`/clients/[client_code]/`)
+- Tabs: Overview | Projects | Strategy | Execution Review | Cells | Campaigns | Infrastructure | Activity
+- Projects vervangt Onboarding (Sprint 2C — nog in planning)
+
+### UI patterns
+- Tabs: rounded-full pills met count badges
+- Client filter: `<select>` met `client_code — name` opties, gesorteerd op code
+- Page size: 100 / 500 / 1000 per pagina
+- Pagination: Previous / Next met "Page X of Y"
+- Badges: shadcn/ui Badge component, kleur per status
+- Tabellen: shadcn/ui Table component
+- Realtime: `useRealtimeTable` hook op alle tabellen
+
+### Schema fixes (recent)
+- `clients.client_code` — alle queries selecteren `client_code`, niet `code`
+- `campaigns.emails_sent`, `replies`, `bounces` — niet `total_sent`, `total_replied`, `total_bounced`
+- `Infrastructure.fetchAll` — paginatie met 1000/page, geen `.limit(100)`
+
 ## Project Structure
 ```
 ~/business-os/
@@ -198,9 +229,10 @@ proof_led dual use — explicit definitions:
 ├── research/                          # Client research (currently SECX only)
 │   └── SECX-*.md                      # SentioCX campaign matrix, prompts per persona, test comparisons
 ├── frontend/                          # Next.js dashboard (Vercel)
-│   ├── app/(dashboard)/page.tsx       # Command Center
-│   ├── app/components/                # Shared UI components
-│   └── lib/supabase/                  # Supabase client helpers
+│   ├── app/(dashboard)/               # Global pages: Command Center, Campaigns, Infrastructure, etc.
+│   ├── app/clients/[client_code]/     # Client workspace: Overview, Projects, Strategy, Cells, etc.
+│   ├── app/components/                # Shared UI components (Sidebar)
+│   └── lib/supabase/                  # Supabase client helpers + realtime hook
 ├── gtm/                               # GTM automation (Python)
 │   ├── orchestrator.py                # Main orchestrator (Phase A: strategy, Phase B: data pipeline)
 │   ├── lib/                           # Supabase client, A-Leads, enrichment, Google, Slack
@@ -353,6 +385,8 @@ Reusable skills in `gtm/skills/` voor consistente GTM operaties. Alle skills geb
   - `provider` — emailbison/manual (plusvibe rows exist as legacy data; no new plusvibe writes)
   - `health_status` — HEALTHY/WARNING/CRITICAL/UNKNOWN (set by campaign-monitor)
   - `cell_id` — FK to `campaign_cells` (links EB campaign to its execution cell)
+  - `emails_sent`, `replies`, `bounces` — KPI counters (NOT `total_sent`/`total_replied`/`total_bounced`)
+  - `status` — active/paused/completed/draft/archived
 - `email_inboxes` **[active — 5,906 rows]** — Synced from EmailBison
   - `status` — connected/disconnected/bouncing/active/removed/paused/disabled
 - `domains` **[active]** — Email sending domains (SPF/DKIM/DMARC status)

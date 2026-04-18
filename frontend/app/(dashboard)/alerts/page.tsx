@@ -1,26 +1,44 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import AlertsShell from './_components/AlertsShell'
 
 export const dynamic = 'force-dynamic'
 
-export default function AlertsPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Alerts</h1>
-        <p className="text-slate-500">System alerts and notifications</p>
-      </div>
+interface Alert {
+  id: string
+  alert_type: string
+  message: string | null
+  severity: string | null
+  metadata: Record<string, unknown> | null
+  client_id: string | null
+  campaign_id: string | null
+  resolved_at: string | null
+  created_at: string
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>System Alerts</CardTitle>
-          <CardDescription>Coming soon — migrating from dashboard-tremor</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500">
-            This page will show alerts from agent_memory and sync_log.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+interface ClientName {
+  id: string
+  name: string
+  client_code: string
+}
+
+export default async function AlertsPage() {
+  const { data: alertsData } = await supabaseAdmin
+    .from('alerts')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  const alerts: Alert[] = alertsData || []
+
+  const { data: clientsData } = await supabaseAdmin
+    .from('clients')
+    .select('id, name, client_code')
+
+  const clients: ClientName[] = clientsData || []
+
+  return (
+    <AlertsShell
+      alerts={alerts}
+      clients={clients}
+    />
   )
 }

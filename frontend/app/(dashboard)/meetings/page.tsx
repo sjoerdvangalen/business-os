@@ -1,26 +1,44 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import MeetingsShell from './_components/MeetingsShell'
 
 export const dynamic = 'force-dynamic'
 
-export default function MeetingsPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Meetings</h1>
-        <p className="text-slate-500">Track scheduled meetings</p>
-      </div>
+interface Meeting {
+  id: string
+  name: string | null
+  start_time: string | null
+  end_time: string | null
+  status: string | null
+  booking_status: string | null
+  attendee_name: string | null
+  attendee_email: string | null
+  client_id: string | null
+  created_at: string
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Meetings</CardTitle>
-          <CardDescription>Coming soon — migrating from dashboard-tremor</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500">
-            This page will show meetings from Cal.com and GHL.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+interface ClientName {
+  id: string
+  name: string
+  client_code: string
+}
+
+export default async function MeetingsPage() {
+  const { data: meetingsData } = await supabaseAdmin
+    .from('meetings')
+    .select('*')
+    .order('start_time', { ascending: false })
+
+  const { data: clientsData } = await supabaseAdmin
+    .from('clients')
+    .select('id, name, client_code')
+
+  const meetings: Meeting[] = meetingsData || []
+  const clients: ClientName[] = clientsData || []
+
+  return (
+    <MeetingsShell
+      meetings={meetings}
+      clients={clients}
+    />
   )
 }

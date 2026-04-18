@@ -69,6 +69,35 @@ export type LeadStatus =
 
 export type MeetingStatus = 'confirmed' | 'pending' | 'cancelled' | 'completed'
 
+export type ProjectType = 'onboarding' | 'launch_window' | 'test_phase' | 'infra_remediation' | 'meeting_block' | 'strategy_review'
+
+export type EventType = 'milestone' | 'approval' | 'launch' | 'test_window' | 'meeting' | 'infra_alert' | 'blocker' | 'overdue'
+
+export type ProjectEventStatus = 'pending' | 'in_progress' | 'review' | 'completed' | 'blocked' | 'overdue'
+
+export type SeverityLevel = 'info' | 'warning' | 'critical'
+
+export interface ProjectEvent {
+  id: string
+  client_id: string
+  project_type: ProjectType
+  event_type: EventType
+  title: string
+  description?: string
+  starts_at: string | null
+  ends_at: string | null
+  all_day: boolean
+  status: ProjectEventStatus
+  severity?: SeverityLevel
+  source_table: string
+  source_id: string
+  linked_cell_id?: string
+  linked_campaign_id?: string
+  linked_strategy_id?: string
+  owner_id?: string
+  payload?: Record<string, unknown>
+}
+
 export type OpportunityStage =
   | 'new'
   | 'qualified'
@@ -382,10 +411,12 @@ export interface GtmSynthesis {
 
 export interface Alert {
   id: string
-  memory_type: string
-  content: string | null
+  alert_type: string
+  message: string | null
+  severity: string | null
   metadata: Record<string, unknown> | null
   client_id: string | null
+  campaign_id: string | null
   created_at: string
 }
 

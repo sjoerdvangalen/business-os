@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type {
   CampaignCell,
   CampaignCellStatus,
@@ -18,9 +18,7 @@ export async function getCampaignCells(options?: {
   verticalKey?: string
   personaKey?: string
 }): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .order('cell_code')
@@ -67,10 +65,8 @@ export async function getCampaignCells(options?: {
  * Get cells for a specific client by client code
  */
 export async function getCellsByClientCode(clientCode: string): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
   // First get the client ID from code
-  const { data: client, error: clientError } = await supabase
+  const { data: client, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('client_code', clientCode.toUpperCase())
@@ -85,7 +81,7 @@ export async function getCellsByClientCode(clientCode: string): Promise<Campaign
     return []
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('client_id', client.id)
@@ -103,9 +99,7 @@ export async function getCellsByClientCode(clientCode: string): Promise<Campaign
  * Get cells for a specific client by client ID
  */
 export async function getCellsByClientId(clientId: string): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('client_id', clientId)
@@ -123,9 +117,7 @@ export async function getCellsByClientId(clientId: string): Promise<CampaignCell
  * Get a single campaign cell by ID
  */
 export async function getCampaignCellById(cellId: string): Promise<CampaignCell | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('id', cellId)
@@ -146,9 +138,7 @@ export async function getCampaignCellById(cellId: string): Promise<CampaignCell 
  * Get a campaign cell by its unique cell code
  */
 export async function getCampaignCellByCode(cellCode: string): Promise<CampaignCell | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('cell_code', cellCode)
@@ -172,9 +162,7 @@ export async function getCellsByStatus(
   clientId: string,
   status: CampaignCellStatus
 ): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('client_id', clientId)
@@ -196,9 +184,7 @@ export async function updateCampaignCellStatus(
   cellId: string,
   status: CampaignCellStatus
 ): Promise<CampaignCell> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', cellId)
@@ -220,9 +206,7 @@ export async function updateCampaignCellBrief(
   cellId: string,
   brief: CampaignCellBrief
 ): Promise<CampaignCell> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .update({
       brief,
@@ -246,9 +230,7 @@ export async function updateCampaignCellBrief(
 export async function getCellsWithStrategyContext(
   clientId: string
 ): Promise<Array<CampaignCell & { strategy?: GtmStrategy }>> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select(`
       *,
@@ -283,9 +265,7 @@ export async function getCellStatusCounts(clientId: string): Promise<{
   scaling: number
   killed: number
 }> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('status')
     .eq('client_id', clientId)
@@ -326,9 +306,7 @@ export async function getCellStatusCounts(clientId: string): Promise<{
  * Get cells ready for execution (status = ready, H1_testing, etc.)
  */
 export async function getCellsReadyForExecution(clientId: string): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .select('*')
     .eq('client_id', clientId)
@@ -350,9 +328,7 @@ export async function getCellsReadyForExecution(clientId: string): Promise<Campa
 export async function createCampaignCells(
   cells: Omit<CampaignCell, 'id' | 'created_at' | 'updated_at'>[]
 ): Promise<CampaignCell[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaign_cells')
     .insert(cells)
     .select()

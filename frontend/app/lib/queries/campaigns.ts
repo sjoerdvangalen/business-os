@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Campaign, CampaignWithStats, CampaignHealthStatus, CampaignStatus } from '@/app/types'
 
 /**
@@ -10,9 +10,7 @@ export async function getCampaigns(options?: {
   healthStatus?: CampaignHealthStatus
   provider?: 'emailbison' | 'manual'
 }): Promise<Campaign[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('campaigns')
     .select('*')
     .order('name')
@@ -47,10 +45,8 @@ export async function getCampaigns(options?: {
  * Get campaigns for a specific client by client code
  */
 export async function getCampaignsByClientCode(clientCode: string): Promise<Campaign[]> {
-  const supabase = await createClient()
-
   // First get the client ID from code
-  const { data: client, error: clientError } = await supabase
+  const { data: client, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('code', clientCode.toUpperCase())
@@ -65,7 +61,7 @@ export async function getCampaignsByClientCode(clientCode: string): Promise<Camp
     return []
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .eq('client_id', client.id)
@@ -83,9 +79,7 @@ export async function getCampaignsByClientCode(clientCode: string): Promise<Camp
  * Get campaigns for a specific client by client ID
  */
 export async function getCampaignsByClientId(clientId: string): Promise<Campaign[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .eq('client_id', clientId)
@@ -103,9 +97,7 @@ export async function getCampaignsByClientId(clientId: string): Promise<Campaign
  * Get a single campaign by ID
  */
 export async function getCampaignById(campaignId: string): Promise<Campaign | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .eq('id', campaignId)
@@ -126,9 +118,7 @@ export async function getCampaignById(campaignId: string): Promise<Campaign | nu
  * Get campaign with stats (lead count, reply count, etc.)
  */
 export async function getCampaignWithStats(campaignId: string): Promise<CampaignWithStats | null> {
-  const supabase = await createClient()
-
-  const { data: campaign, error: campaignError } = await supabase
+  const { data: campaign, error: campaignError } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .eq('id', campaignId)
@@ -143,7 +133,7 @@ export async function getCampaignWithStats(campaignId: string): Promise<Campaign
   }
 
   // Get lead counts
-  const { count: leadCount, error: leadError } = await supabase
+  const { count: leadCount, error: leadError } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId)
@@ -153,7 +143,7 @@ export async function getCampaignWithStats(campaignId: string): Promise<Campaign
   }
 
   // Get reply count from email_threads
-  const { count: replyCount, error: replyError } = await supabase
+  const { count: replyCount, error: replyError } = await supabaseAdmin
     .from('email_threads')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId)
@@ -164,7 +154,7 @@ export async function getCampaignWithStats(campaignId: string): Promise<Campaign
   }
 
   // Get meeting count
-  const { count: meetingCount, error: meetingError } = await supabase
+  const { count: meetingCount, error: meetingError } = await supabaseAdmin
     .from('meetings')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId)
@@ -185,9 +175,7 @@ export async function getCampaignWithStats(campaignId: string): Promise<Campaign
  * Get active campaigns with health checks
  */
 export async function getActiveCampaignsWithHealth(): Promise<Campaign[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .eq('status', 'active')
@@ -205,9 +193,7 @@ export async function getActiveCampaignsWithHealth(): Promise<Campaign[]> {
  * Get campaigns needing attention (CRITICAL or WARNING health)
  */
 export async function getCampaignsNeedingAttention(): Promise<Campaign[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .select('*')
     .or('health_status.eq.CRITICAL,health_status.eq.WARNING')
@@ -228,9 +214,7 @@ export async function updateCampaignStatus(
   campaignId: string,
   status: CampaignStatus
 ): Promise<Campaign> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', campaignId)
@@ -252,9 +236,7 @@ export async function updateCampaignHealthStatus(
   campaignId: string,
   healthStatus: CampaignHealthStatus
 ): Promise<Campaign> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('campaigns')
     .update({
       health_status: healthStatus,
@@ -286,9 +268,7 @@ export async function getCampaignPerformanceSummary(clientId?: string): Promise<
   totalReplied: number
   avgReplyRate: number
 }> {
-  const supabase = await createClient()
-
-  let query = supabase.from('campaigns').select('*')
+  let query = supabaseAdmin.from('campaigns').select('*')
 
   if (clientId) {
     query = query.eq('client_id', clientId)

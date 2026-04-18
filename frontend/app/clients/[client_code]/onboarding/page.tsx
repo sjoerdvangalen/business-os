@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ interface OnboardingStep {
 }
 
 async function getClientData(clientCode: string) {
-  const supabase = await createClient()
+  const supabase = supabaseAdmin
 
   const { data: client, error } = await supabase
     .from('clients')

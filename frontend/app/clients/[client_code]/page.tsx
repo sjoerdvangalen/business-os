@@ -126,8 +126,8 @@ export default async function ClientOverviewPage({ params }: ClientOverviewPageP
               </div>
             )}
             <Button variant="outline" className="w-full" asChild>
-              <Link href={`/clients/${client_code}/onboarding`}>
-                View Onboarding
+              <Link href={`/clients/${client_code}/projects`}>
+                View Projects
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>

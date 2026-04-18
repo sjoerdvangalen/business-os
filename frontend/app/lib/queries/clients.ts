@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Client, ClientWithCampaigns, ClientLifecycleStatus } from '@/app/types'
 
 /**
@@ -8,9 +8,7 @@ export async function getClients(options?: {
   excludeChurned?: boolean
   status?: ClientLifecycleStatus
 }): Promise<Client[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('clients')
     .select('*')
     .order('name')
@@ -37,9 +35,7 @@ export async function getClients(options?: {
  * Get a single client by their unique code (e.g., 'FRTC', 'BETS')
  */
 export async function getClientByCode(clientCode: string): Promise<Client | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select('*')
     .eq('code', clientCode.toUpperCase())
@@ -61,9 +57,7 @@ export async function getClientByCode(clientCode: string): Promise<Client | null
  * Get a single client by their UUID
  */
 export async function getClientById(clientId: string): Promise<Client | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select('*')
     .eq('id', clientId)
@@ -86,9 +80,7 @@ export async function getClientById(clientId: string): Promise<Client | null> {
 export async function getClientWithCampaigns(
   clientCode: string
 ): Promise<ClientWithCampaigns | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select(`
       *,
@@ -115,9 +107,7 @@ export async function updateClientStatus(
   clientId: string,
   status: ClientLifecycleStatus
 ): Promise<Client> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', clientId)
@@ -139,9 +129,7 @@ export async function updateClientStage(
   clientId: string,
   stage: string
 ): Promise<Client> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .update({ stage, updated_at: new Date().toISOString() })
     .eq('id', clientId)
@@ -163,9 +151,7 @@ export async function updateClientApprovalStatus(
   clientId: string,
   approvalStatus: string
 ): Promise<Client> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .update({
       approval_status: approvalStatus,
@@ -187,9 +173,7 @@ export async function updateClientApprovalStatus(
  * Get clients by stage
  */
 export async function getClientsByStage(stage: string): Promise<Client[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select('*')
     .eq('stage', stage)
@@ -207,9 +191,7 @@ export async function getClientsByStage(stage: string): Promise<Client[]> {
  * Get clients needing attention (alerts, issues, etc.)
  */
 export async function getClientsNeedingAttention(): Promise<Client[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select('*')
     .or('status.eq.paused,approval_status.eq.internal_review,approval_status.eq.external_iteration')

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Domain, EmailInbox, EmailInboxStatus } from '@/app/types'
 
 // ============================================================================
@@ -12,9 +12,7 @@ export async function getDomains(options?: {
   clientId?: string
   healthy?: boolean
 }): Promise<Domain[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('domains')
     .select('*')
     .order('domain')
@@ -44,10 +42,8 @@ export async function getDomains(options?: {
  * Get domains for a specific client by client code
  */
 export async function getDomainsByClientCode(clientCode: string): Promise<Domain[]> {
-  const supabase = await createClient()
-
   // First get the client ID from code
-  const { data: client, error: clientError } = await supabase
+  const { data: client, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('code', clientCode.toUpperCase())
@@ -62,7 +58,7 @@ export async function getDomainsByClientCode(clientCode: string): Promise<Domain
     return []
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('domains')
     .select('*')
     .eq('client_id', client.id)
@@ -80,9 +76,7 @@ export async function getDomainsByClientCode(clientCode: string): Promise<Domain
  * Get domains for a specific client by client ID
  */
 export async function getDomainsByClientId(clientId: string): Promise<Domain[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('domains')
     .select('*')
     .eq('client_id', clientId)
@@ -100,9 +94,7 @@ export async function getDomainsByClientId(clientId: string): Promise<Domain[]> 
  * Get a single domain by ID
  */
 export async function getDomainById(domainId: string): Promise<Domain | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('domains')
     .select('*')
     .eq('id', domainId)
@@ -123,9 +115,7 @@ export async function getDomainById(domainId: string): Promise<Domain | null> {
  * Get domain by domain name
  */
 export async function getDomainByName(domainName: string): Promise<Domain | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('domains')
     .select('*')
     .eq('domain', domainName.toLowerCase())
@@ -146,9 +136,7 @@ export async function getDomainByName(domainName: string): Promise<Domain | null
  * Get domains with DNS issues
  */
 export async function getDomainsWithIssues(): Promise<Domain[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('domains')
     .select('*')
     .or('spf_status.eq.invalid,dkim_status.eq.invalid,dmarc_status.eq.invalid')
@@ -173,9 +161,7 @@ export async function getDomainHealthSummary(clientId?: string): Promise<{
   dmarcIssues: number
   averageHealthScore: number
 }> {
-  const supabase = await createClient()
-
-  let query = supabase.from('domains').select('*')
+  let query = supabaseAdmin.from('domains').select('*')
 
   if (clientId) {
     query = query.eq('client_id', clientId)
@@ -236,9 +222,7 @@ export async function getEmailInboxes(options?: {
   status?: EmailInboxStatus
   active?: boolean
 }): Promise<EmailInbox[]> {
-  const supabase = await createClient()
-
-  let query = supabase
+  let query = supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .order('email')
@@ -273,10 +257,8 @@ export async function getEmailInboxes(options?: {
  * Get email inboxes for a specific client by client code
  */
 export async function getEmailInboxesByClientCode(clientCode: string): Promise<EmailInbox[]> {
-  const supabase = await createClient()
-
   // First get the client ID from code
-  const { data: client, error: clientError } = await supabase
+  const { data: client, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('code', clientCode.toUpperCase())
@@ -291,7 +273,7 @@ export async function getEmailInboxesByClientCode(clientCode: string): Promise<E
     return []
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .eq('client_id', client.id)
@@ -309,9 +291,7 @@ export async function getEmailInboxesByClientCode(clientCode: string): Promise<E
  * Get email inboxes for a specific client by client ID
  */
 export async function getEmailInboxesByClientId(clientId: string): Promise<EmailInbox[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .eq('client_id', clientId)
@@ -329,9 +309,7 @@ export async function getEmailInboxesByClientId(clientId: string): Promise<Email
  * Get a single email inbox by ID
  */
 export async function getEmailInboxById(inboxId: string): Promise<EmailInbox | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .eq('id', inboxId)
@@ -352,9 +330,7 @@ export async function getEmailInboxById(inboxId: string): Promise<EmailInbox | n
  * Get email inbox by email address
  */
 export async function getEmailInboxByAddress(email: string): Promise<EmailInbox | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .eq('email', email.toLowerCase())
@@ -375,9 +351,7 @@ export async function getEmailInboxByAddress(email: string): Promise<EmailInbox 
  * Get inboxes with connection issues
  */
 export async function getInboxesWithIssues(): Promise<EmailInbox[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .in('status', ['disconnected', 'bouncing', 'disabled'])
@@ -395,9 +369,7 @@ export async function getInboxesWithIssues(): Promise<EmailInbox[]> {
  * Get inboxes ready for campaigns (active with good warmup)
  */
 export async function getReadyInboxes(minWarmupScore: number = 70): Promise<EmailInbox[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .select('*')
     .in('status', ['active', 'connected'])
@@ -423,9 +395,7 @@ export async function getEmailInboxSummary(clientId?: string): Promise<{
   averageWarmupScore: number
   totalSentToday: number
 }> {
-  const supabase = await createClient()
-
-  let query = supabase.from('email_inboxes').select('*')
+  let query = supabaseAdmin.from('email_inboxes').select('*')
 
   if (clientId) {
     query = query.eq('client_id', clientId)
@@ -478,9 +448,7 @@ export async function updateEmailInboxStatus(
   inboxId: string,
   status: EmailInboxStatus
 ): Promise<EmailInbox> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', inboxId)
@@ -502,9 +470,7 @@ export async function updateEmailInboxWarmupScore(
   inboxId: string,
   warmupScore: number
 ): Promise<EmailInbox> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('email_inboxes')
     .update({
       warmup_score: warmupScore,

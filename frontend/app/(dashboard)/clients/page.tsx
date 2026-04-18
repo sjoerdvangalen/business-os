@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import ClientsList from './components/ClientsList'
 import ClientsSkeleton from './components/ClientsSkeleton'
@@ -17,42 +17,40 @@ interface Client {
 }
 
 async function getClients(): Promise<Client[]> {
-  try {
-    const supabase = await createClient()
+  const { data: clients, error } = await supabaseAdmin
+    .from('clients')
+    .select('*')
+    .order('created_at', { ascending: false })
 
-    // Fetch clients with campaign count
-    const { data: clients, error } = await supabase
-      .from('clients')
-      .select(`
-        id,
-        client_code,
-        name,
-        status,
-        stage,
-        created_at,
-        campaigns:campaigns(count)
-      `)
-      .order('created_at', { ascending: false })
+  if (error) {
+    throw new Error(`Supabase query error: ${error.message} (${error.code})`)
+  }
 
-    if (error) {
-      console.error('Error fetching clients:', error)
-      return []
-    }
-
-    // Transform the data to include campaign count
-    return (clients || []).map((client: any) => ({
-      id: client.id,
-      client_code: client.client_code,
-      name: client.name,
-      status: client.status,
-      stage: client.stage,
-      campaign_count: client.campaigns?.[0]?.count || 0,
-      created_at: client.created_at,
-    }))
-  } catch (error) {
-    console.error('Error in getClients:', error)
+  if (!clients || clients.length === 0) {
     return []
   }
+
+  // Get campaign counts separately
+  const { data: campaigns } = await supabaseAdmin
+    .from('campaigns')
+    .select('client_id')
+
+  const campaignCounts: Record<string, number> = {}
+  if (campaigns) {
+    for (const c of campaigns) {
+      campaignCounts[c.client_id] = (campaignCounts[c.client_id] || 0) + 1
+    }
+  }
+
+  return clients.map((client: any) => ({
+    id: client.id,
+    client_code: client.client_code,
+    name: client.name,
+    status: client.status,
+    stage: client.stage,
+    campaign_count: campaignCounts[client.id] || 0,
+    created_at: client.created_at,
+  }))
 }
 
 async function ClientsContent() {

@@ -1,10 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Client, ClientStats, RecentActivity, Campaign, SyncLog } from '@/lib/database.types'
 
 export async function getClientByCode(clientCode: string): Promise<Client | null> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('clients')
     .select('*')
     .eq('client_code', clientCode.toUpperCase())
@@ -19,10 +17,8 @@ export async function getClientByCode(clientCode: string): Promise<Client | null
 }
 
 export async function getClientStats(clientId: string): Promise<ClientStats> {
-  const supabase = await createClient()
-
   // Get campaigns count
-  const { count: campaignsCount, error: campaignsError } = await supabase
+  const { count: campaignsCount, error: campaignsError } = await supabaseAdmin
     .from('campaigns')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
@@ -32,7 +28,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
   }
 
   // Get active leads count (contacts with status = 'active' or lead_status = 'new' | 'contacted')
-  const { count: activeLeadsCount, error: leadsError } = await supabase
+  const { count: activeLeadsCount, error: leadsError } = await supabaseAdmin
     .from('contacts')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
@@ -47,7 +43,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
   startOfMonth.setDate(1)
   startOfMonth.setHours(0, 0, 0, 0)
 
-  const { count: meetingsCount, error: meetingsError } = await supabase
+  const { count: meetingsCount, error: meetingsError } = await supabaseAdmin
     .from('meetings')
     .select('*', { count: 'exact', head: true })
     .eq('client_id', clientId)
@@ -58,7 +54,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
   }
 
   // Get average reply rate from campaigns
-  const { data: campaigns, error: replyRateError } = await supabase
+  const { data: campaigns, error: replyRateError } = await supabaseAdmin
     .from('campaigns')
     .select('reply_rate, emails_sent')
     .eq('client_id', clientId)
@@ -86,10 +82,8 @@ export async function getRecentActivity(
   clientId: string,
   limit: number = 5
 ): Promise<RecentActivity[]> {
-  const supabase = await createClient()
-
   // Try to get sync_log entries first (these are system-wide)
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('sync_log')
     .select('id, source, table_name, operation, records_processed, started_at, duration_ms')
     .order('started_at', { ascending: false })

@@ -107,6 +107,7 @@ May optionally reuse client-level strategy context (tone, proof, compliance).
 
 ## Wat al werkt (operationeel)
 
+### Backend
 - EmailBison syncs: campaigns, email_inboxes, sequences (*/15 min + hourly), domains (daily)
 - Reply pipeline: webhook-emailbison → email_threads + contacts → DNC entities + Slack
 - Meeting lifecycle: Cal.com/GHL → webhook-meeting → review → Slack Block Kit → opportunity pipeline
@@ -118,6 +119,19 @@ May optionally reuse client-level strategy context (tone, proof, compliance).
 - GTM pipeline V2: jotform → research → synthesis (gtm_strategies) → doc render → external_approve → [parallel] cell-seed + execution-review-doc (fase 1) → sourcing_approve → [parallel] A-Leads bulk + messaging (ERIC+HUIDIG) → cell-enrich → campaign push
 - Lead gen pipeline: GMaps scraper → A-Leads → TryKitt/Enrow → AI enrich → EmailBison
 - PlusVibe volledig gearchiveerd (sync + webhook functions in _archive/)
+
+### Frontend Dashboard (Next.js / Vercel)
+- Alle pagina's met tabs, client filter dropdown, page size (100/500/1000), pagination:
+  - Campaigns: status tabs, expandable rows met sequences + cells, client filter
+  - Infrastructure: Domains/Inboxes tabs, DNS badges, health scores, alle records (fetchAll)
+  - Meetings: status tabs, attendee info, datum weergave
+  - Strategies: approval status tabs, version weergave, client links
+  - Pipeline: lifecycle status tabs, stage + approval + infra badges
+  - Alerts: severity tabs, resolved filter, time ago weergave
+- Clients overview: lifecycle, stage, approval, metrics
+- Command Center: KPI cards + recent clients
+- Sidebar met collapsible secties (Execution, Infrastructure)
+- Realtime updates via Supabase subscriptions op alle tabellen
 
 ---
 
@@ -191,6 +205,16 @@ Benchmark: SECX → 4 personas (CX/OPS/TECH/CSUITE) × 6 verticals (SAAS/FIN/HLT
 - [x] gtm-messaging-doc: formula resolver injectie
 - [x] gtm-campaign-cell-enrich: 2-laags QA rubric (deterministic + LLM)
 - [x] messaging_revision status + Slack alert (`messaging_revision` = messaging generated but failed QA or operator review; awaiting correction or regeneration)
+
+---
+
+## Sprint 2C — Projects + Calendar Control Layer
+
+- [ ] Projects module met List / Board / Calendar views
+- [ ] Command Center portfolio timeline
+- [ ] Event sourcing uit bestaande DB tabellen (derived data, geen nieuwe tabellen)
+- [ ] Onboarding-tab vervangen door Projects als operationele container
+- [ ] Read-only MVP: geen mutaties, alleen derived event weergave
 
 ---
 
