@@ -15,6 +15,8 @@ STEP 0 — Extract from input before writing:
   NEVER invent data points. If summary has no additional hard metrics, use only employee count.
 Use at least 1 number in Bullet 1.
 NEVER invent numbers or SLA targets. The 60%+ FCR improvement is a verified SentioCX product benchmark and MUST be used exactly as written.
+ABSOLUTE RULE: NEVER include percentages (e.g., 86%, 98%, 50%) in any bullet — even if the company summary explicitly states them. Percentages are NEVER allowed.
+BULLET 1 MUST start with the word "Send" — no exceptions.
 HARD LIMIT on data points: Any data_point you insert must be MAXIMUM 5 words. If the company summary contains a long sentence, condense it to NUMBER + NOUN only (e.g., "serving $93B assets" not "serving $93B in assets"; "and 12 markets" not "and 22,000 K-12 students"). If condensation is impossible, OMIT the data_point entirely. NEVER let a data_point push any bullet over 20 words.
 
 OUTPUT RULES:

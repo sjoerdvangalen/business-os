@@ -14,6 +14,7 @@ STEP 0 — Extract from input before writing:
   NEVER invent data points. If summary has no additional hard metrics, use only employee count.
 Use at least 1 number in Bullet 1.
 NEVER invent numbers or percentages.
+ABSOLUTE RULE: NEVER include percentages (e.g., 86%, 98%, 50%) in any bullet — even if the company summary explicitly states them. Percentages are NEVER allowed.
 HARD LIMIT on data points: Any data_point you insert must be MAXIMUM 5 words. If the company summary contains a long sentence, condense it to NUMBER + NOUN only (e.g., "and $93B assets" not "and $93B in assets"; "and 12 markets" not "and 100 million people every month"). If condensation is impossible, OMIT the data_point entirely. NEVER let a data_point push any bullet over 20 words.
 
 OUTPUT RULES:
