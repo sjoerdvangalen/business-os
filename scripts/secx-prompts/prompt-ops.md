@@ -29,9 +29,9 @@ OUTPUT RULES:
 
 COMMON FAILURES — NEVER DO THESE:
 
-FAILURE 1: "Route candidate inquiries directly to 500+ specialist recruiters on first contact."
-  WHY WRONG: Only 11 words. Bullet 1 consistently hits 11 words because the model omits descriptive detail about the specialists.
-  FIX: "Send candidate inquiries directly to 500+ dedicated specialist recruiters on first contact." (12 words)
+FAILURE 1: "Route candidate inquiries directly to specialist recruiter teams on first contact."
+  WHY WRONG: Only 9 words. Bullet 1 is consistently too short because the model omits "dedicated" or uses a weak descriptor.
+  FIX: "Send candidate inquiries directly to dedicated specialist recruiter teams on first contact." (12 words)
 
 FAILURE 2: "Route candidate inquiries via intent-level pairing based on urgency and skills match and location."
   WHY WRONG: Three criteria. The word "and" appears twice. Bullet 2 MUST have exactly ONE "and".
@@ -47,51 +47,63 @@ FAILURE 4: "Hit FCR targets without adding coordinators to support manufacturing
 
 ---
 
-REFERENCE EXAMPLES — 10/10 SCORED OUTPUTS WITH EXPLANATIONS:
+REFERENCE EXAMPLES — QUALITY TIERS:
+
+TIER 1 (Strong): B1 contains a real data point from the company summary. ALWAYS prefer this when data is available.
+
+EXAMPLE B — Financial (City National Bank, 1,000+ employees, $93B assets)
+B1: "Send client service requests directly to dedicated wealth advisor teams serving $93B assets on first contact."
+  WHY STRONG: 14 words. "$93B assets" (real data point from summary — makes B1 specific and credible). "wealth advisor teams" (specific role + team structure). "on first contact" (mandatory).
+B2: "Route client service requests via intent-level pairing based on account type and request type."
+  WHY CORRECT: 13 words. Exactly ONE "and". "account type" and "request type" are correct financial criteria.
+B3: "Improve first-contact resolution by 60%+ across your 1,000+ workforce without adding coordinators while maintaining service continuity."
+  WHY CORRECT: 17 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause adds operational relevance.
+
+EXAMPLE F — SaaS (Solera, 5,000+ employees, 280,000 customers)
+B1: "Send user issues directly to dedicated support engineer teams serving 280,000 global customers on first contact."
+  WHY STRONG: 16 words. "280,000 global customers" (real data point from summary — makes B1 specific). "support engineer teams" (specific role + team structure).
+B2: "Route user issues via intent-level pairing based on issue type and SLA tier."
+  WHY CORRECT: 12 words. Exactly ONE "and".
+B3: "Improve first-contact resolution by 60%+ across your 5,000+ workforce without overtime while maintaining platform uptime."
+  WHY CORRECT: 15 words. Extension clause "while maintaining platform uptime" is SaaS-relevant.
+
+TIER 2 (Acceptable): B1 uses bare baseline — no additional data point available in summary. Correct but less specific.
 
 EXAMPLE A — Staffing (Hays, 5,000+ employees)
-B1: "Send candidate inquiries directly to 5,000+ dedicated specialist recruiters on first contact."
-  WHY 10/10: 12 words. "Send" (different verb from B2, eliminates repetition). "dedicated" adds the 12th word. "specialist recruiters" (plural, specific). "on first contact" (mandatory ending).
+B1: "Send candidate inquiries directly to dedicated specialist recruiter teams on first contact."
+  WHY ACCEPTABLE: 12 words. No additional data points in summary beyond employee count. Bare baseline is correct fallback. "dedicated" is mandatory. "specialist recruiter teams" (specific role + team structure).
 B2: "Route candidate inquiries via intent-level pairing based on urgency and skills match."
-  WHY 10/10: 12 words. Exactly ONE "and". "urgency" and "skills match" are the two correct staffing criteria.
+  WHY CORRECT: 12 words. Exactly ONE "and".
 B3: "Improve first-contact resolution by 60%+ across your 5,000+ workforce without overtime while maintaining current staffing levels."
-  WHY 10/10: 15 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause "while maintaining current staffing levels" adds 5 words and real operational meaning.
-
-EXAMPLE B — Financial (City National Bank, 1,000+ employees, $93B assets, 12 markets)
-B1: "Send client service requests directly to 1,000+ dedicated advisor teams serving $93B in assets on first contact."
-  WHY 10/10: 16 words. "$93B in assets" (real data point from summary). "dedicated advisor teams" (plural, specific). "on first contact" (mandatory).
-B2: "Route client service requests via intent-level pairing based on account type and request type."
-  WHY 10/10: 13 words. Exactly ONE "and". "account type" and "request type" are correct financial criteria.
-B3: "Improve first-contact resolution by 60%+ across your 1,000+ workforce and 12 markets without adding coordinators while maintaining service continuity."
-  WHY 10/10: 17 words. "by 60%+" (verified SentioCX FCR benchmark). "12 markets" (real geo data point). Extension clause adds operational relevance.
+  WHY CORRECT: 15 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause adds 5 words and real operational meaning.
 
 EXAMPLE C — Healthcare (PharmaForce, 200+ employees)
-B1: "Send patient calls directly to 200+ dedicated care coordinators on first contact."
-  WHY 10/10: 12 words. "patient calls" (healthcare items). "dedicated care coordinators" (plural, specific). "on first contact" (mandatory).
+B1: "Send patient calls directly to dedicated care coordinator teams on first contact."
+  WHY ACCEPTABLE: 12 words. No additional data points in summary. Bare baseline is correct fallback.
 B2: "Route patient calls via intent-level pairing based on clinical urgency and care type."
-  WHY 10/10: 12 words. Exactly ONE "and". "clinical urgency" and "care type" are correct healthcare criteria.
+  WHY CORRECT: 12 words. Exactly ONE "and".
 B3: "Improve first-contact resolution by 60%+ across your 200+ workforce without overtime while maintaining care continuity."
-  WHY 10/10: 14 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause "while maintaining care continuity" is healthcare-relevant.
+  WHY CORRECT: 14 words. Extension clause "while maintaining care continuity" is healthcare-relevant.
 
 EXAMPLE D — SaaS (Smartcat, 200+ employees)
-B1: "Send user issues directly to 200+ dedicated support engineers on first contact."
-  WHY 10/10: 12 words. "user issues" (SaaS items). "dedicated support engineers" (plural, specific).
+B1: "Send user issues directly to dedicated support engineer teams on first contact."
+  WHY ACCEPTABLE: 12 words. No additional data points in summary. Bare baseline is correct fallback.
 B2: "Route user issues via intent-level pairing based on issue type and SLA tier."
-  WHY 10/10: 12 words. Exactly ONE "and". "issue type" and "SLA tier" are correct SaaS criteria.
+  WHY CORRECT: 12 words. Exactly ONE "and".
 B3: "Improve first-contact resolution by 60%+ across your 200+ workforce without overtime while maintaining platform uptime."
-  WHY 10/10: 14 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause "while maintaining platform uptime" is SaaS-relevant.
+  WHY CORRECT: 14 words. Extension clause "while maintaining platform uptime" is SaaS-relevant.
 
 EXAMPLE E — Manufacturing (Jostens, 1,000+ employees)
-B1: "Send distributor inquiries directly to 1,000+ dedicated operations specialists on first contact."
-  WHY 10/10: 12 words. "Send" (different verb from B2). "dedicated" adds the 12th word. "operations specialists" (plural, specific).
+B1: "Send distributor inquiries directly to dedicated operations specialist teams on first contact."
+  WHY ACCEPTABLE: 12 words. No additional data points in summary. Bare baseline is correct fallback.
 B2: "Route distributor inquiries via intent-level pairing based on case complexity and region."
-  WHY 10/10: 12 words. Exactly ONE "and". "case complexity" and "region" are correct manufacturing criteria.
+  WHY CORRECT: 12 words. Exactly ONE "and".
 B3: "Improve first-contact resolution by 60%+ across your 1,000+ workforce without adding coordinators while maintaining delivery continuity."
-  WHY 10/10: 15 words. "by 60%+" (verified SentioCX FCR benchmark). Extension clause "while maintaining delivery continuity" is manufacturing-relevant.
+  WHY CORRECT: 15 words. Extension clause "while maintaining delivery continuity" is manufacturing-relevant.
 
 ---
 
-BULLET 1 — Send [items] directly to [specialist+scale] [data_point] on first contact.
+BULLET 1 — Send [items] directly to dedicated [specialist] teams [data_point] on first contact.
   Items by industry (CRITICAL — use the Industry field from input to pick exactly ONE):
     STAFFING: candidate inquiries
     FINANCIAL: client service requests
@@ -99,18 +111,18 @@ BULLET 1 — Send [items] directly to [specialist+scale] [data_point] on first c
     SAAS: user issues
     MANUFACTURING: distributor inquiries
     ENGINEERING: customer requests
-  Specialist: specific ops role for the industry (ALWAYS plural form).
-    STAFFING: specialist recruiters / placement experts
-    FINANCIAL: advisor teams / wealth specialists
-    HEALTHCARE: care coordinators / patient specialists
-    SAAS: support engineers / technical specialists
-    MANUFACTURING: operations specialists / distributor advisors
-    ENGINEERING: technical specialists / engineering advisors
-  NEVER combine two roles into one phrase like "specialists recruiters". NEVER use singular.
-  Scale: use STEP 0 number
-  [data_point] (optional — insert ONLY if a second data point is available from summary): Add after scale as "serving [fact]" or "across [fact]". Must be MAXIMUM 4 words. Examples: "serving $93B assets", "across 12 markets". NEVER invent.
+  Specialist: specific ops role for the industry (used as modifier before "teams").
+    STAFFING: specialist recruiter / placement expert
+    FINANCIAL: wealth advisor / financial advisor
+    HEALTHCARE: care coordinator / patient specialist
+    SAAS: support engineer / technical specialist
+    MANUFACTURING: operations specialist / distributor advisor
+    ENGINEERING: technical specialist / engineering advisor
+  NEVER combine two roles into one phrase. NEVER use singular. The role is used as a modifier: "specialist recruiter teams", not "specialist recruiters teams".
+  [data_point] (MANDATORY when available from summary — PREFERRED over bare baseline): Add after "teams" as "serving [fact]" or "across [fact]". Must be MAXIMUM 4 words. Examples: "serving $93B assets", "across 12 markets", "across 280K customers", "serving 3 lab sites". NEVER invent.
+  ABSOLUTE RULE: The employee count (e.g., 200+, 500+, 1,000+, 5,000+) is NOT a valid data_point for B1. It already appears in B3 as "across your [scale] workforce". NEVER insert employee count in B1. If summary has NO additional hard metrics beyond employee count, use the bare baseline without data_point.
   MUST end with "on first contact" or "without transfers"
-  WORD COUNT GUARANTEE: Base = "Send" (1) + items (2) + "directly to" (2) + scale (1) + descriptor (1) + specialist (2) + "on first contact." (3) = minimum 12 words. The descriptor (dedicated/experienced) is MANDATORY and must come IMMEDIATELY BEFORE the specialist phrase. If data_point added, ensure total stays within 12-20. NEVER exceed 20 words.
+  WORD COUNT GUARANTEE: Base = "Send" (1) + items (2) + "directly to" (2) + "dedicated" (1) + [specialist] (1-2) + "teams" (1) + "on first contact." (3) = minimum 11-13 words. If data_point added, ensure total stays within 12-20. NEVER exceed 20 words.
 
 BULLET 2 — Route [items] via patented intent-based matching based on [criterion A] and [criterion B].
   Items: same as B1
