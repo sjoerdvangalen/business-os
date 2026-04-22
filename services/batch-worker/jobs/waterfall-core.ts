@@ -98,16 +98,18 @@ async function verifyWithEnrow(email: string): Promise<EnrowVerifyResult> {
 // ── TryKitt find ──────────────────────────────────────────────────────────────
 
 async function findEmailWithTryKitt(
-  firstName: string, lastName: string, domain: string
+  firstName: string, lastName: string, domain: string, linkedinUrl?: string | null
 ): Promise<{ email: string | null; status: string }> {
   if (!TRYKITT_API_KEY) return { email: null, status: 'no_api_key' };
   try {
+    const payload: Record<string, unknown> = { fullName: `${firstName} ${lastName}`.trim(), domain, realtime: true };
+    if (linkedinUrl) payload.linkedinUrl = linkedinUrl;
     const resp = await fetch(`${TRYKITT_BASE_URL}/job/find_email`, {
       method: 'POST',
       headers: { 'x-api-key': TRYKITT_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fullName: `${firstName} ${lastName}`.trim(), domain, realtime: true }),
+      body: JSON.stringify(payload),
     });
-    if (resp.status === 429) { await sleep(1000); return findEmailWithTryKitt(firstName, lastName, domain); }
+    if (resp.status === 429) { await sleep(1000); return findEmailWithTryKitt(firstName, lastName, domain, linkedinUrl); }
     if (!resp.ok) return { email: null, status: `trykitt_${resp.status}` };
     const data = await resp.json() as { email?: string; validity?: string };
     const email = data.email && data.email.includes('@') ? data.email : null;
@@ -118,16 +120,18 @@ async function findEmailWithTryKitt(
 // ── Enrow find ────────────────────────────────────────────────────────────────
 
 async function findEmailWithEnrow(
-  firstName: string, lastName: string, domain: string
+  firstName: string, lastName: string, domain: string, linkedinUrl?: string | null
 ): Promise<string | null> {
   if (!ENROW_API_KEY) return null;
   const fullName = `${firstName} ${lastName}`.trim();
   if (!fullName) return null;
   try {
+    const payload: Record<string, unknown> = { fullname: fullName, company_domain: domain };
+    if (linkedinUrl) payload.linkedin_url = linkedinUrl;
     const resp = await fetch(`${ENROW_BASE_URL}/email/find/single`, {
       method: 'POST',
       headers: { 'x-api-key': ENROW_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fullname: fullName, company_domain: domain }),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) return null;
     const init = await resp.json() as { id?: string };
@@ -175,7 +179,7 @@ export async function waterfallContact(
   // 1. Load contact
   const { data: contact, error: contactError } = await supabase
     .from('contacts')
-    .select('id, first_name, last_name, email, email_verified_at, company_id')
+    .select('id, first_name, last_name, email, email_verified_at, company_id, linkedin_url')
     .eq('id', contactId)
     .single();
 
@@ -214,6 +218,7 @@ export async function waterfallContact(
   const domain = company?.domain ?? extractDomainFromWebsite(company?.website ?? null);
   const firstName = contact.first_name ?? '';
   const lastName = contact.last_name ?? '';
+  const linkedinUrl = contact.linkedin_url ?? null;
 
   // ── FASE 1: VIND EMAIL ────────────────────────────────────────────────────
 
@@ -249,7 +254,7 @@ export async function waterfallContact(
     // 4b. TryKitt
     if (!foundEmail && firstName && lastName) {
       await sleep(RATE_TRYKITT_MS);
-      const trykitt = await findEmailWithTryKitt(firstName, lastName, domain);
+      const trykitt = await findEmailWithTryKitt(firstName, lastName, domain, linkedinUrl);
       totalCost += 0.005;
       if (trykitt.email) {
         const accepted = await tryCandidate(trykitt.email, 'trykitt_find');
@@ -260,7 +265,7 @@ export async function waterfallContact(
     // 4c. Enrow find
     if (!foundEmail && firstName && lastName) {
       await sleep(RATE_ENROW_MS);
-      const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain);
+      const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain, linkedinUrl);
       totalCost += 0.005;
       if (enrowEmail) await tryCandidate(enrowEmail, 'enrow_find');
     }
