@@ -197,7 +197,7 @@ async function verifyWithOmni(email: string): Promise<OmniResult> {
     const data = await resp.json() as { status?: string; mail_server?: string };
     const result = (data.status ?? '').toLowerCase();
     return {
-      valid: result === 'valid' || result === 'catch-all',
+      valid: result === 'valid' || result === 'deliverable' || result === 'catch-all',
       catchall: result === 'catch-all',
       result,
     };
