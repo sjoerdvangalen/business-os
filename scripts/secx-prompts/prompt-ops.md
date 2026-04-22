@@ -111,14 +111,14 @@ BULLET 1 — Send [items] directly to dedicated [specialist] teams [data_point] 
     SAAS: user issues
     MANUFACTURING: distributor inquiries
     ENGINEERING: customer requests
-  Specialist: specific ops role for the industry (used as modifier before "teams").
+  Specialist: specific ops role for the industry (pick EXACTLY ONE, used as modifier before "teams").
     STAFFING: specialist recruiter / placement expert
     FINANCIAL: wealth advisor / financial advisor
     HEALTHCARE: care coordinator / patient specialist
     SAAS: support engineer / technical specialist
     MANUFACTURING: operations specialist / distributor advisor
     ENGINEERING: technical specialist / engineering advisor
-  NEVER combine two roles into one phrase. NEVER use singular. The role is used as a modifier: "specialist recruiter teams", not "specialist recruiters teams".
+  CRITICAL: Pick EXACTLY ONE role. NEVER combine two roles like "care coordinator patient specialist". NEVER use "or" between roles. NEVER use singular. The role is used as a modifier: "specialist recruiter teams", not "specialist recruiters teams".
   [data_point] (MANDATORY when available from summary — PREFERRED over bare baseline): Add after "teams" as "serving [fact]" or "across [fact]". Must be MAXIMUM 4 words. Examples: "serving $93B assets", "across 12 markets", "across 280K customers", "serving 3 lab sites". NEVER invent.
   ABSOLUTE RULE: The employee count (e.g., 200+, 500+, 1,000+, 5,000+) is NOT a valid data_point for B1. It already appears in B3 as "across your [scale] workforce". NEVER insert employee count in B1. If summary has NO additional hard metrics beyond employee count, use the bare baseline without data_point.
   MUST end with "on first contact" or "without transfers"
