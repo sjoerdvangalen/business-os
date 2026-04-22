@@ -25,7 +25,7 @@ const TRYKITT_API_KEY = Deno.env.get('TRYKITT_API_KEY') ?? '';
 const OMNIVERIFIER_API_KEY = Deno.env.get('OMNIVERIFIER_API_KEY') ?? '';
 const ENROW_API_KEY = Deno.env.get('ENROW_API_KEY') ?? '';
 
-const TRYKITT_BASE_URL = 'https://api.trykitt.com/v1';
+const TRYKITT_BASE_URL = 'https://api.trykitt.ai';
 const OMNIVERIFIER_BASE_URL = 'https://api.omniverifier.com/v1/validate';
 const ENROW_BASE_URL = 'https://api.enrow.io';
 const ENROW_POLL_MS = 2000;
@@ -85,6 +85,7 @@ interface EnrowVerifyResult {
 async function pollEnrow(jobId: string, endpoint: string): Promise<Record<string, unknown>> {
   for (let i = 0; i < ENROW_POLL_MAX; i++) {
     await sleep(ENROW_POLL_MS);
+    // Enrow GET endpoint uses query param: /email/find/single?id={id}
     const res = await fetch(`${ENROW_BASE_URL}${endpoint}?id=${jobId}`, {
       headers: { 'x-api-key': ENROW_API_KEY },
     });
@@ -131,18 +132,23 @@ async function findEmailWithTryKitt(
 ): Promise<TryKittFindResult> {
   if (!TRYKITT_API_KEY) return { email: null, status: 'no_api_key' };
   try {
-    const resp = await fetch(`${TRYKITT_BASE_URL}/find`, {
+    const resp = await fetch(`${TRYKITT_BASE_URL}/job/find_email`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${TRYKITT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ first_name: firstName, last_name: lastName, domain }),
+      headers: { 'x-api-key': TRYKITT_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: `${firstName} ${lastName}`.trim(),
+        domain,
+        realtime: true,
+      }),
     });
     if (resp.status === 429) {
       await sleep(1000);
       return findEmailWithTryKitt(firstName, lastName, domain);
     }
     if (!resp.ok) return { email: null, status: `trykitt_${resp.status}` };
-    const data = await resp.json() as { email?: string; status?: string };
-    return { email: data.email ?? null, status: data.status ?? 'found' };
+    const data = await resp.json() as { email?: string; validity?: string };
+    const email = data.email && data.email.includes('@') ? data.email : null;
+    return { email, status: data.validity ?? 'unknown' };
   } catch {
     return { email: null, status: 'trykitt_error' };
   }
@@ -300,6 +306,7 @@ serve(async (req) => {
     const firstName = contact.first_name ?? '';
     const lastName = contact.last_name ?? '';
     let totalCost = 0;
+    let omniResult: OmniResult | null = null;
 
     // ── FASE 1: VIND EMAIL ──────────────────────────────────────────────────────────
 
@@ -321,14 +328,32 @@ serve(async (req) => {
         );
       }
 
+      // Helper: probeer één kandidaat-email via Omni — returnt true als valide
+      const tryCandidate = async (email: string, source: string): Promise<boolean> => {
+        const omni = await verifyWithOmni(email);
+        totalCost += 0.001;
+        await sleep(RATE_OMNI_MS);
+        if (omni.valid) {
+          foundEmail = email;
+          foundSource = source;
+          omniResult = omni;
+          return true;
+        }
+        return false;
+      };
+
       // 4a. Enrow patterns (5 parallel — gratis bij not_found)
       const patterns = generatePatterns(firstName, lastName, domain);
       if (patterns.length > 0) {
         const results = await Promise.all(patterns.map(p => verifyWithEnrow(p)));
         const hitIndex = results.findIndex(r => r.valid);
         if (hitIndex !== -1) {
-          foundEmail = patterns[hitIndex];
-          foundSource = 'enrow_pattern';
+          const accepted = await tryCandidate(patterns[hitIndex], 'enrow_pattern');
+          if (!accepted) {
+            // Omni reject op pattern — reset zodat TryKitt/Enrow find nog proberen
+            foundEmail = null;
+            foundSource = '';
+          }
         }
       }
 
@@ -338,8 +363,11 @@ serve(async (req) => {
         const trykitt = await findEmailWithTryKitt(firstName, lastName, domain);
         totalCost += 0.005;
         if (trykitt.email) {
-          foundEmail = trykitt.email;
-          foundSource = 'trykitt_find';
+          const accepted = await tryCandidate(trykitt.email, 'trykitt_find');
+          if (!accepted) {
+            foundEmail = null;
+            foundSource = '';
+          }
         }
       }
 
@@ -349,8 +377,7 @@ serve(async (req) => {
         const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain);
         totalCost += 0.005;
         if (enrowEmail) {
-          foundEmail = enrowEmail;
-          foundSource = 'enrow_find';
+          await tryCandidate(enrowEmail, 'enrow_find');
         }
       }
     }
@@ -367,24 +394,26 @@ serve(async (req) => {
     }
 
     // ── FASE 2: VALIDEER EMAIL ──────────────────────────────────────────────────────
-
-    // 5. Omni verify
-    const omni = await verifyWithOmni(foundEmail);
-    totalCost += 0.001;
-    await sleep(RATE_OMNI_MS);
-
-    if (!omni.valid) {
-      await supabase.from('contacts').update({
-        email_verified: false, email_waterfall_status: 'omni_rejected',
-      }).eq('id', contact_id);
-      await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, foundSource, 'failed', {
-        omni_result: omni.result,
-      });
-      return new Response(
-        JSON.stringify({ email: null, source: 'omni_rejected', catchall: false, cost: totalCost }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Omni is al gedaan per kandidaat in FASE 1 (behalve voor 'existing')
+    // Voor 'existing' email: Omni nu nog doen
+    if (!omniResult) {
+      omniResult = await verifyWithOmni(foundEmail!);
+      totalCost += 0.001;
+      await sleep(RATE_OMNI_MS);
+      if (!omniResult.valid) {
+        await supabase.from('contacts').update({
+          email_verified: false, email_waterfall_status: 'omni_rejected',
+        }).eq('id', contact_id);
+        await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, foundSource, 'failed', {
+          omni_result: omniResult.result,
+        });
+        return new Response(
+          JSON.stringify({ email: null, source: 'omni_rejected', catchall: false, cost: totalCost }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
+    const omni = omniResult;
 
     // 6. Enrow catchall check (Omni zegt soms catch-all, Enrow is accurater)
     let catchall = omni.catchall;

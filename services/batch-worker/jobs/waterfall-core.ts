@@ -110,7 +110,8 @@ async function findEmailWithTryKitt(
     if (resp.status === 429) { await sleep(1000); return findEmailWithTryKitt(firstName, lastName, domain); }
     if (!resp.ok) return { email: null, status: `trykitt_${resp.status}` };
     const data = await resp.json() as { email?: string; validity?: string };
-    return { email: data.email ?? null, status: data.validity ?? 'unknown' };
+    const email = data.email && data.email.includes('@') ? data.email : null;
+    return { email, status: data.validity ?? 'unknown' };
   } catch { return { email: null, status: 'trykitt_error' }; }
 }
 
