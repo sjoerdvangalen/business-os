@@ -1,10 +1,10 @@
 /**
  * Waterfall batch job
- * Haalt contacts zonder email op uit Supabase en roept email-waterfall edge function aan
+ * Haalt contacts zonder email op uit Supabase en verwerkt ze via waterfallContact() (direct, geen HTTP hop)
  */
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { waterfallContact } from './waterfall-core.ts';
+
 const SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN!;
 const SUPABASE_PROJECT_REF = process.env.SUPABASE_PROJECT_REF ?? 'gjhbbyodrbuabfzafzry';
 
@@ -37,19 +37,6 @@ async function dbQuery(query: string): Promise<unknown[]> {
   );
   if (!resp.ok) throw new Error(`DB query failed: ${await resp.text()}`);
   return resp.json() as Promise<unknown[]>;
-}
-
-async function callWaterfall(contactId: string, clientId?: string): Promise<{ email: string | null; source: string }> {
-  const resp = await fetch(`${SUPABASE_URL}/functions/v1/email-waterfall`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ contact_id: contactId, client_id: clientId }),
-  });
-  if (!resp.ok) throw new Error(`waterfall ${resp.status}: ${(await resp.text()).substring(0, 100)}`);
-  return resp.json() as Promise<{ email: string | null; source: string }>;
 }
 
 async function withConcurrency<T>(
@@ -91,7 +78,7 @@ export async function runWaterfallBatch(opts: WaterfallOptions): Promise<Waterfa
 
   await withConcurrency(ids, async (id, i) => {
     try {
-      const result = await callWaterfall(id, client_id);
+      const result = await waterfallContact(id, client_id);
       if (result.email) {
         stats.found++;
         console.log(`[${i + 1}/${ids.length}] FOUND  ${result.email}  (${result.source})`);

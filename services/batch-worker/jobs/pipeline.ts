@@ -5,6 +5,7 @@
  */
 
 import { runWaterfallBatch } from './waterfall.ts';
+import { runPusher } from './pusher.ts';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -163,18 +164,16 @@ async function stepPush(
 ): Promise<number> {
   console.log(`[pipeline] Stap 3: EmailBison push (campaign=${ebCampaignId})`);
 
-  const result = await callEdgeFunction('emailbison-pusher', {
+  const result = await runPusher({
     client_id: clientId,
     emailbison_campaign_id: ebCampaignId,
     campaign_id: campaignId,
     cell_id: cellId,
     sourcing_run_id: runId,
     dry_run: dryRun,
-  }) as { pushed?: number; skipped?: number; error?: string };
+  });
 
-  if (result.error) throw new Error(`emailbison-pusher fout: ${result.error}`);
-
-  const pushed = result.pushed ?? 0;
+  const pushed = result.pushed;
   console.log(`[pipeline] EmailBison: ${pushed} contacten gepushed`);
 
   await updateSourcingRun(runId, { contacts_pushed: pushed });

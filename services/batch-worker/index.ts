@@ -10,6 +10,7 @@
 
 import { runWaterfallBatch } from './jobs/waterfall.ts';
 import { runPipeline } from './jobs/pipeline.ts';
+import { runPusher } from './jobs/pusher.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3000');
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
@@ -102,6 +103,32 @@ const server = Bun.serve({
 
       // Pipeline loopt door, HTTP wacht op resultaat (Railway heeft geen timeout)
       const result = await runPipeline(body);
+      return Response.json(result);
+    }
+
+    // Losse EmailBison push (zonder volledige pipeline)
+    if (req.method === 'POST' && url.pathname === '/push') {
+      const secret = req.headers.get('x-webhook-secret');
+      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const body = await req.json() as {
+        client_id: string;
+        emailbison_campaign_id: number;
+        campaign_id?: string;
+        cell_id?: string;
+        sourcing_run_id?: string;
+        dry_run?: boolean;
+        batch_size?: number;
+      };
+
+      if (!body.client_id || !body.emailbison_campaign_id) {
+        return Response.json({ error: 'client_id and emailbison_campaign_id are required' }, { status: 400 });
+      }
+
+      console.log(`[push] Start — client=${body.client_id} campaign=${body.emailbison_campaign_id}`);
+      const result = await runPusher(body);
       return Response.json(result);
     }
 
