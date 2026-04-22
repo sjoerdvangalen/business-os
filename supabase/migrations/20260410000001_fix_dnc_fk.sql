@@ -1,6 +1,6 @@
 -- Fix broken FK in dnc_entities
--- source_lead_id verwees naar niet-bestaande 'leads' tabel
--- Hernoemd naar source_contact_campaign_id → FK naar contact_campaigns
+-- source_lead_id had een kapotte FK; FK hersteld → leads tabel
+-- Kolom tijdelijk hernoemd naar source_contact_campaign_id (zie 20260422000001 voor terughernoemen)
 
 ALTER TABLE dnc_entities DROP CONSTRAINT IF EXISTS dnc_entities_source_lead_id_fkey;
 

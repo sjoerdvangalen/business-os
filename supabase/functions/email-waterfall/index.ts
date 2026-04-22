@@ -5,15 +5,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  * Email Waterfall — Multi-step email verification
  *
  * Flow:
- *   1. 90-day cache check (email_verified_at within 90 days → return cached)
+ *   1. 90-day cache check (email_verified_at within 90 days -> return cached)
  *   2. DNC check (Level 1: global bounces, Level 2: client-specific,
  *                 Level 3: positive reactions = replied/meeting_booked)
- *   3. If contact already has email → OmniVerifier confirm + catchall → return
- *   4. Pattern generation + TryKitt verify (cheap)
- *   5. First valid pattern → OmniVerifier confirm + catchall → return
- *   6. If all patterns fail → Enrow email find (name+domain lookup)
- *   7. Enrow result → OmniVerifier confirm + catchall → return
- *   8. Log to contact_validation_log
+ *   3. If contact already has email -> OmniVerifier confirm
+ *      Valid + catchall? -> DONE
+ *      Invalid -> STOP (status = omni_rejected, email NOT wiped)
+ *   4. Enrow pattern verify (5 patterns, free on not_found)
+ *      Hit (valid/catch_all)? -> Omni confirm + catchall -> DONE
+ *   5. TryKitt search (first_name + last_name + domain)
+ *      Found? -> Omni confirm + catchall -> DONE
+ *   6. Enrow search (first_name + last_name + domain)
+ *      Found? -> Omni confirm + catchall -> DONE
+ *   7. Log to contact_validation_log
  *
  * Input:  { contact_id: string, client_id?: string, sourcing_run_id?: string }
  * Output: { email: string | null, source: string, catchall: boolean, cost: number }
@@ -24,11 +28,18 @@ const OMNIVERIFIER_API_KEY = Deno.env.get('OMNIVERIFIER_API_KEY') ?? '';
 const ENROW_API_KEY = Deno.env.get('ENROW_API_KEY') ?? '';
 
 const TRYKITT_BASE_URL = 'https://api.trykitt.com/v1';
-const OMNIVERIFIER_BASE_URL = 'https://api.omniverifier.com/v1';
-const ENROW_BASE_URL = 'https://api.enrow.io/v1';
+const OMNIVERIFIER_BASE_URL = 'https://api.omniverifier.com/v1/validate';
+const ENROW_BASE_URL = 'https://api.enrow.io';
+const ENROW_POLL_MS = 2000;
+const ENROW_POLL_MAX = 15;
 
 const CACHE_DAYS = 90;
-const DNC_POSITIVE_REASONS = ['replied', 'meeting_booked']
+const DNC_POSITIVE_REASONS = ['replied', 'meeting_booked'];
+
+// Rate limits (safe delays in ms)
+const RATE_ENROW_MS = 100;
+const RATE_TRYKITT_MS = 250;
+const RATE_OMNI_MS = 60;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,25 +72,107 @@ function extractDomainFromWebsite(website: string | null): string | null {
   }
 }
 
-// ── TryKitt ──────────────────────────────────────────────────────────────────────
+async function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-async function verifyWithTryKitt(email: string, retryCount = 0): Promise<{ valid: boolean; reason?: string }> {
-  if (!TRYKITT_API_KEY) return { valid: false, reason: 'no_api_key' };
+// ── Enrow verify ─────────────────────────────────────────────────────────────────
+
+interface EnrowVerifyResult {
+  valid: boolean;
+  catchall: boolean;
+  status: string;
+}
+
+async function pollEnrow(jobId: string, endpoint: string): Promise<Record<string, unknown>> {
+  for (let i = 0; i < ENROW_POLL_MAX; i++) {
+    await sleep(ENROW_POLL_MS);
+    const res = await fetch(`${ENROW_BASE_URL}${endpoint}?id=${jobId}`, {
+      headers: { 'x-api-key': ENROW_API_KEY },
+    });
+    if (!res.ok) continue;
+    const data = await res.json() as Record<string, unknown>;
+    // Enrow returns { message: "operating" } while processing — only return when qualification or email is present
+    if (data.qualification || data.email) return data;
+  }
+  return { status: 'timeout' };
+}
+
+async function verifyWithEnrow(email: string): Promise<EnrowVerifyResult> {
+  if (!ENROW_API_KEY) return { valid: false, catchall: false, status: 'no_api_key' };
   try {
-    const resp = await fetch(`${TRYKITT_BASE_URL}/verify`, {
+    const resp = await fetch(`${ENROW_BASE_URL}/email/verify/single`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${TRYKITT_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'x-api-key': ENROW_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    if (resp.status === 429 && retryCount < 3) {
-      await new Promise(r => setTimeout(r, 1000));
-      return verifyWithTryKitt(email, retryCount + 1);
-    }
-    if (!resp.ok) return { valid: false, reason: `trykitt_${resp.status}` };
-    const data = await resp.json() as { status?: string; reason?: string };
-    return { valid: data.status === 'valid' || data.status === 'risky', reason: data.reason };
+    if (!resp.ok) return { valid: false, catchall: false, status: `enrow_${resp.status}` };
+    const init = await resp.json() as { id?: string };
+    if (!init.id) return { valid: false, catchall: false, status: 'enrow_no_job' };
+    const data = await pollEnrow(init.id, '/email/verify/single');
+    const qualification = String(data.qualification || '').toLowerCase();
+    const valid = qualification === 'valid' || qualification === 'catchall' || qualification === 'catch_all';
+    const catchall = qualification === 'catchall' || qualification === 'catch_all';
+    return { valid, catchall, status: qualification || 'unknown' };
   } catch {
-    return { valid: false, reason: 'trykitt_error' };
+    return { valid: false, catchall: false, status: 'enrow_error' };
+  }
+}
+
+// ── TryKitt search ───────────────────────────────────────────────────────────────
+
+interface TryKittFindResult {
+  email: string | null;
+  status: string;
+}
+
+async function findEmailWithTryKitt(
+  firstName: string,
+  lastName: string,
+  domain: string
+): Promise<TryKittFindResult> {
+  if (!TRYKITT_API_KEY) return { email: null, status: 'no_api_key' };
+  try {
+    const resp = await fetch(`${TRYKITT_BASE_URL}/find`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TRYKITT_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ first_name: firstName, last_name: lastName, domain }),
+    });
+    if (resp.status === 429) {
+      await sleep(1000);
+      return findEmailWithTryKitt(firstName, lastName, domain);
+    }
+    if (!resp.ok) return { email: null, status: `trykitt_${resp.status}` };
+    const data = await resp.json() as { email?: string; status?: string };
+    return { email: data.email ?? null, status: data.status ?? 'found' };
+  } catch {
+    return { email: null, status: 'trykitt_error' };
+  }
+}
+
+// ── Enrow search ─────────────────────────────────────────────────────────────────
+
+async function findEmailWithEnrow(
+  firstName: string,
+  lastName: string,
+  domain: string
+): Promise<string | null> {
+  if (!ENROW_API_KEY) return null;
+  const fullName = `${firstName} ${lastName}`.trim();
+  if (!fullName) return null;
+  try {
+    const resp = await fetch(`${ENROW_BASE_URL}/email/find/single`, {
+      method: 'POST',
+      headers: { 'x-api-key': ENROW_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fullname: fullName, company_domain: domain }),
+    });
+    if (!resp.ok) return null;
+    const init = await resp.json() as { id?: string };
+    if (!init.id) return null;
+    const data = await pollEnrow(init.id, '/email/find/single');
+    return (data.email as string) || null;
+  } catch {
+    return null;
   }
 }
 
@@ -94,7 +187,7 @@ interface OmniResult {
 async function verifyWithOmni(email: string): Promise<OmniResult> {
   if (!OMNIVERIFIER_API_KEY) return { valid: true, catchall: false, result: 'skipped' };
   try {
-    const resp = await fetch(`${OMNIVERIFIER_BASE_URL}/validate`, {
+    const resp = await fetch(`${OMNIVERIFIER_BASE_URL}/email/check`, {
       method: 'POST',
       headers: { 'x-api-key': OMNIVERIFIER_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -103,37 +196,15 @@ async function verifyWithOmni(email: string): Promise<OmniResult> {
       console.warn(`OmniVerifier ${resp.status} for ${email} — treating as valid`);
       return { valid: true, catchall: false, result: `omni_${resp.status}` };
     }
-    const data = await resp.json() as { result?: string; status?: string };
-    const result = (data.result ?? data.status ?? '').toLowerCase();
+    const data = await resp.json() as { status?: string; mail_server?: string };
+    const result = (data.status ?? '').toLowerCase();
     return {
-      valid: result === 'valid' || result === 'catch-all' || result === 'catch_all',
-      catchall: result === 'catch-all' || result === 'catch_all',
+      valid: result === 'valid' || result === 'catch-all',
+      catchall: result === 'catch-all',
       result,
     };
   } catch {
     return { valid: true, catchall: false, result: 'omni_error' };
-  }
-}
-
-// ── Enrow email find ──────────────────────────────────────────────────────────────
-
-async function findEmailWithEnrow(
-  firstName: string,
-  lastName: string,
-  domain: string
-): Promise<string | null> {
-  if (!ENROW_API_KEY) return null;
-  try {
-    const resp = await fetch(`${ENROW_BASE_URL}/find`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${ENROW_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ first_name: firstName, last_name: lastName, domain }),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json() as { email?: string; data?: { email?: string } };
-    return data.email ?? data.data?.email ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -146,10 +217,11 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { contact_id, client_id, sourcing_run_id } = body as {
+    const { contact_id, client_id, sourcing_run_id, force_search } = body as {
       contact_id: string;
       client_id?: string;
       sourcing_run_id?: string;
+      force_search?: boolean;
     };
 
     if (!contact_id) {
@@ -179,8 +251,9 @@ serve(async (req) => {
     }
 
     const now = new Date();
+    const nowIso = now.toISOString();
 
-    // 2. 90-day cache check — skip reverification if recently verified
+    // 2. 90-day cache check
     if (contact.email && contact.email_verified_at) {
       const verifiedAt = new Date(contact.email_verified_at);
       const ageDays = (now.getTime() - verifiedAt.getTime()) / (1000 * 60 * 60 * 24);
@@ -192,8 +265,6 @@ serve(async (req) => {
       }
     }
 
-    const nowIso = now.toISOString();
-
     // 3. DNC check — Level 1 (global), Level 2 (client), Level 3 (positive reactions)
     const dncQuery = supabase
       .from('dnc_entities')
@@ -201,14 +272,12 @@ serve(async (req) => {
       .or(`entity_type.eq.contact_id,entity_type.eq.email,entity_type.eq.domain`)
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
 
-    // Build OR for entity values
     const emailLower = contact.email?.toLowerCase();
     const entityValues = [contact_id, emailLower].filter(Boolean);
     if (entityValues.length > 0) {
       const { data: dncRows } = await dncQuery.in('entity_value', entityValues);
 
       for (const row of dncRows ?? []) {
-        // Level 3: positive reactions are DNC for the specific client only
         const isLevel3 = DNC_POSITIVE_REASONS.includes(row.reason);
         const appliesToClient = row.client_id === null || row.client_id === client_id;
 
@@ -234,9 +303,17 @@ serve(async (req) => {
 
     const domain = company?.domain ?? extractDomainFromWebsite(company?.website ?? null);
 
+    let foundEmail: string | null = contact.email ?? null;
+    let foundSource = '';
+    let totalCost = 0;
+
     // 5. If contact already has email, run OmniVerifier confirm
-    if (contact.email && domain) {
-      const omni = await verifyWithOmni(contact.email);
+    // SKIP reconfirm when force_search=true (e.g. Enrow already flagged it invalid)
+    if (foundEmail && !force_search) {
+      const omni = await verifyWithOmni(foundEmail);
+      totalCost += 0.001;
+      await sleep(RATE_OMNI_MS);
+
       if (omni.valid) {
         await supabase.from('contacts').update({
           email_verified_at: nowIso,
@@ -245,22 +322,30 @@ serve(async (req) => {
           email_verified: true,
         }).eq('id', contact_id);
 
-        await logValidation(supabase, contact_id, sourcing_run_id, contact.email, 'omni_reconfirm', 'valid', {
+        await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, 'omni_reconfirm', 'valid', {
           omni_result: omni.result,
+          catchall: omni.catchall,
         });
 
         return new Response(
-          JSON.stringify({ email: contact.email, source: 'omni_reconfirm', catchall: omni.catchall, cost: 0.001 }),
+          JSON.stringify({ email: foundEmail, source: 'omni_reconfirm', catchall: omni.catchall, cost: totalCost }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      // Email failed OmniVerifier — clear it and try pattern generation below
+
+      // Email failed OmniVerifier — DO NOT wipe, just mark rejected
       await supabase.from('contacts').update({
-        email: null,
         email_verified: false,
-        email_waterfall_status: 'invalidated',
+        email_waterfall_status: 'omni_rejected',
         email_catchall: null,
       }).eq('id', contact_id);
+
+      await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, 'omni_rejected', 'rejected', {
+        omni_result: omni.result,
+      });
+
+      // Reset foundEmail so we try pattern/search below
+      foundEmail = null;
     }
 
     if (!domain) {
@@ -268,7 +353,7 @@ serve(async (req) => {
         email_verified: false, email_waterfall_status: 'failed',
       }).eq('id', contact_id);
       return new Response(
-        JSON.stringify({ email: null, source: 'no_domain', catchall: false, cost: 0 }),
+        JSON.stringify({ email: null, source: 'no_domain', catchall: false, cost: totalCost }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -276,29 +361,36 @@ serve(async (req) => {
     const firstName = contact.first_name ?? '';
     const lastName = contact.last_name ?? '';
 
-    // 6. TryKitt pattern verification
+    // 6. Enrow pattern verify (5 patterns — parallel)
     const patterns = generatePatterns(firstName, lastName, domain);
-    let foundEmail: string | null = null;
-    let foundSource = '';
-    let totalCost = 0;
-
-    for (const pattern of patterns) {
-      const trykitt = await verifyWithTryKitt(pattern);
-      totalCost += 0.0015;
-      if (trykitt.valid) {
-        foundEmail = pattern;
-        foundSource = 'trykitt';
-        break;
+    if (patterns.length > 0) {
+      const results = await Promise.all(patterns.map(p => verifyWithEnrow(p)));
+      const hitIndex = results.findIndex(r => r.valid);
+      if (hitIndex !== -1) {
+        foundEmail = patterns[hitIndex];
+        foundSource = 'enrow_pattern';
       }
     }
 
-    // 7. Enrow email find fallback (if TryKitt found nothing)
+    // 7. TryKitt search fallback
     if (!foundEmail && firstName && lastName) {
+      await sleep(RATE_TRYKITT_MS);
+      const trykitt = await findEmailWithTryKitt(firstName, lastName, domain);
+      totalCost += 0.005;
+      if (trykitt.email) {
+        foundEmail = trykitt.email;
+        foundSource = 'trykitt_find';
+      }
+    }
+
+    // 8. Enrow search fallback
+    if (!foundEmail && firstName && lastName) {
+      await sleep(RATE_ENROW_MS);
       const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain);
+      totalCost += 0.005;
       if (enrowEmail) {
         foundEmail = enrowEmail;
         foundSource = 'enrow_find';
-        totalCost += 0.005;
       }
     }
 
@@ -317,9 +409,10 @@ serve(async (req) => {
       );
     }
 
-    // 8. OmniVerifier confirm on found email + catchall detection
+    // 9. OmniVerifier confirm on found email + Enrow catchall detection
     const omni = await verifyWithOmni(foundEmail);
     totalCost += 0.001;
+    await sleep(RATE_OMNI_MS);
 
     if (!omni.valid) {
       await supabase.from('contacts').update({
@@ -336,7 +429,15 @@ serve(async (req) => {
       );
     }
 
-    // 9. DNC check for found email domain
+    // Catchall check via Enrow verify
+    let catchall = omni.catchall;
+    if (!catchall) {
+      const enrowCheck = await verifyWithEnrow(foundEmail);
+      await sleep(RATE_ENROW_MS);
+      if (enrowCheck.catchall) catchall = true;
+    }
+
+    // 10. DNC check for found email domain
     const foundDomain = foundEmail.split('@')[1]?.toLowerCase();
     if (foundDomain) {
       const { data: domainDnc } = await supabase
@@ -359,22 +460,16 @@ serve(async (req) => {
       }
     }
 
-    // 10. Save verified email
-    await supabase.from('contacts').update({
-      email: foundEmail,
-      email_verified: true,
-      email_verified_at: nowIso,
-      email_catchall: omni.catchall,
-      email_waterfall_status: 'verified',
-    }).eq('id', contact_id);
+    // 11. Save verified email — HARD RULE: new email always replaces old, gets priority
+    await replaceContactEmail(supabase, contact_id, foundEmail, nowIso, catchall, foundSource);
 
     await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, foundSource, 'valid', {
       omni_result: omni.result,
-      catchall: omni.catchall,
+      catchall,
     });
 
     return new Response(
-      JSON.stringify({ email: foundEmail, source: foundSource, catchall: omni.catchall, cost: totalCost }),
+      JSON.stringify({ email: foundEmail, source: foundSource, catchall, cost: totalCost }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
@@ -398,11 +493,61 @@ async function logValidation(
   status: string,
   extra: Record<string, unknown>
 ): Promise<void> {
-  await supabase.from('contact_validation_log').insert({
-    contact_id: contactId,
-    sourcing_run_id: sourcingRunId ?? null,
-    final_status: status,
-    final_method: method,
-    trykitt_result: { email, ...extra },
-  }).catch(err => console.error('log validation failed:', err.message));
+  try {
+    await supabase.from('contact_validation_log').insert({
+      contact_id: contactId,
+      sourcing_run_id: sourcingRunId ?? null,
+      final_status: status,
+      final_method: method,
+      omni_result: { email, ...extra },
+    });
+  } catch (err) {
+    console.error('log validation failed:', (err as Error).message);
+  }
+}
+
+/**
+ * Hard rule: newly found email ALWAYS replaces the old one and gets priority.
+ * Logs the change to contacts.history for audit trail.
+ */
+async function replaceContactEmail(
+  supabase: ReturnType<typeof createClient>,
+  contactId: string,
+  newEmail: string,
+  nowIso: string,
+  catchall: boolean,
+  source: string,
+): Promise<void> {
+  // 1. Read old email + history
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('email, history')
+    .eq('id', contactId)
+    .single();
+
+  const oldEmail = contact?.email || null;
+  const history = Array.isArray(contact?.history) ? contact.history as unknown[] : [];
+
+  // 2. Append history entry if email actually changed
+  if (oldEmail && oldEmail.toLowerCase() !== newEmail.toLowerCase()) {
+    history.push({
+      at: nowIso,
+      source: 'email_waterfall',
+      changed_by: 'email-waterfall',
+      fields: {
+        email: { from: oldEmail, to: newEmail },
+      },
+      note: `Replaced invalid/stale email with verified email via ${source}`,
+    });
+  }
+
+  // 3. Update contact — new email is canonical, always takes priority
+  await supabase.from('contacts').update({
+    email: newEmail,
+    email_verified: true,
+    email_verified_at: nowIso,
+    email_catchall: catchall,
+    email_waterfall_status: 'verified',
+    history,
+  }).eq('id', contactId);
 }

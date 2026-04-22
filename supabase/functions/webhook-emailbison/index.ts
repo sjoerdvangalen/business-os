@@ -114,6 +114,25 @@ async function addDncEntity(
 /**
  * Send Slack alert for critical inbox/warmup events
  */
+async function appendContactHistory(
+  supabase: ReturnType<typeof createClient>,
+  contactId: string,
+  entry: Record<string, unknown>
+): Promise<void> {
+  try {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('history')
+      .eq('id', contactId)
+      .single()
+    const history = Array.isArray(contact?.history) ? contact.history as unknown[] : []
+    history.push({ at: new Date().toISOString(), ...entry })
+    await supabase.from('contacts').update({ history }).eq('id', contactId)
+  } catch (e) {
+    console.error(`[history] Failed to append for ${contactId}:`, (e as Error).message)
+  }
+}
+
 async function sendSlackAlert(
   payload: Record<string, unknown>,
   requestId: string
@@ -450,6 +469,16 @@ serve(async (req) => {
             expiresAt: expiresAt.toISOString(),
             requestId
           })
+
+          await appendContactHistory(supabase, contact.id, {
+            source: 'emailbison_webhook',
+            changed_by: 'webhook-emailbison',
+            fields: {
+              reply_count: { from: contact.reply_count || 0, to: (contact.reply_count || 0) + 1 },
+              contact_status: { from: contact.contact_status, to: contact.contact_status === 'new' || contact.contact_status === 'targeted' ? 'responded' : contact.contact_status },
+            },
+            note: `Lead ${eventType === 'LEAD_INTERESTED' ? 'interested' : 'replied'} via EmailBison`,
+          })
         }
 
         // Store in email_threads
@@ -629,6 +658,15 @@ serve(async (req) => {
           await supabase.from('contacts')
             .update({ contact_status: 'bounced' })
             .eq('id', contact.id)
+
+          await appendContactHistory(supabase, contact.id, {
+            source: 'emailbison_webhook',
+            changed_by: 'webhook-emailbison',
+            fields: {
+              contact_status: { from: contact.contact_status, to: 'bounced' }
+            },
+            note: `Bounce: ${bounceMessage || 'SMTP ' + smtpCode}`,
+          })
         }
 
         break
@@ -657,6 +695,17 @@ serve(async (req) => {
           // expiresAt: NULL (permanent)
           requestId
         })
+
+        if (contact) {
+          await appendContactHistory(supabase, contact.id, {
+            source: 'emailbison_webhook',
+            changed_by: 'webhook-emailbison',
+            fields: {
+              contact_status: { from: contact.contact_status, to: 'unsubscribed' }
+            },
+            note: 'Lead unsubscribed via EmailBison',
+          })
+        }
 
         break
       }

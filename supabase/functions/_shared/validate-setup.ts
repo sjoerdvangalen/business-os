@@ -21,7 +21,7 @@ export async function validateSetup() {
   const { data: indexes, error: indexError } = await supabase.rpc('exec_sql', {
     sql: `
       SELECT indexname FROM pg_indexes 
-      WHERE tablename IN ('campaigns', 'email_threads', 'contacts', 'contact_campaigns', 'email_inboxes')
+      WHERE tablename IN ('campaigns', 'email_threads', 'contacts', 'leads', 'email_inboxes')
       AND indexname LIKE 'idx_%'
     `
   })

@@ -194,32 +194,42 @@ CREATE INDEX idx_contacts_available ON contacts(available_for_reuse_after)
 CREATE INDEX idx_contacts_source_id ON contacts(source_id) WHERE source_id IS NOT NULL;
 ```
 
-#### 3. `contact_campaigns` (linking table)
+#### 3. `leads` (linking table)
 
-Koppelt contact aan specifieke campaign (many-to-many):
+Koppelt contact aan specifieke campaign per client (many-to-many). Een contact wordt een lead op het moment dat die gepushed wordt naar een EmailBison campaign.
 
 ```sql
-CREATE TABLE contact_campaigns (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  contact_id      UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-  campaign_id     UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
-  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+-- Bestaande tabel (live, 24k+ rows)
+CREATE TABLE leads (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id           UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  campaign_id          UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  client_id            UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  cell_id              UUID REFERENCES campaign_cells(id),
 
-  -- Campaign specifieke status
-  campaign_status TEXT NOT NULL DEFAULT 'added'
-                      CHECK (campaign_status IN ('added', 'sent', 'replied', 'meeting_booked', 'completed')),
+  -- Status in de campaign
+  status               TEXT,  -- added | sent | replied | meeting_booked | completed
+  label                TEXT,  -- EmailBison label (INTERESTED, NOT_INTERESTED, etc.)
+  reply_classification TEXT,
 
-  -- PlusVibe specifiek
-  plusvibe_lead_id TEXT,
+  -- Tracking
+  sender_email         TEXT,
+  opened_count         INT DEFAULT 0,
+  reply_count          INT DEFAULT 0,
+  bounced              BOOLEAN DEFAULT false,
 
   -- Timestamps
-  added_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  first_sent_at   TIMESTAMPTZ,
-  first_reply_at  TIMESTAMPTZ,
-
-  UNIQUE(contact_id, campaign_id)
+  added_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  first_sent_at        TIMESTAMPTZ,
+  first_reply_at       TIMESTAMPTZ,
+  last_reply_at        TIMESTAMPTZ,
+  completed_at         TIMESTAMPTZ,
+  updated_at           TIMESTAMPTZ
 );
 ```
+
+> **Naamgeving:** `leads` = contact × campaign × client. Niet te verwarren met `contacts` (de volledige persoon-pool).
+> Positieve reactie (replied/meeting_booked) wordt bijgehouden via `label` en `reply_classification`.
 
 #### 4. `meetings` (uitgebreid)
 
@@ -265,20 +275,20 @@ Campaign setup
       → contact.times_targeted += 1
       → contact.last_targeted_at = now()
       → contact.contact_status = 'targeted'
-      → contact_campaigns INSERT
-      → PlusVibe API (send leads)
+      → leads INSERT
+      → EmailBison API (send leads)
 ```
 
 #### 3. Contact Response
 
 ```
-PlusVibe webhook (reply)
-  → webhook-receiver
+EmailBison webhook (reply)
+  → webhook-emailbison
     → email_threads INSERT
     → contact.reply_count += 1
     → contact.last_reply_at = now()
     → contact.contact_status = 'responded'
-    → contact_campaigns.campaign_status = 'replied'
+    → leads.status = 'replied', leads.label = LEAD_MARKED_AS_*
 ```
 
 #### 4. Meeting Booked
@@ -346,18 +356,17 @@ WHERE contact_status IN ('new', 'qualified', 'no_show', 'unqualified', 'not_inte
 4. **Flexibiliteit** - JSONB voor enrichment data
 5. **Performance** - goede indexen, duidelijke relaties
 
-### Migratie Pad
+### Live staat (april 2026)
 
-1. **Huidige data migreren:**
-   - `companies` → `businesses`
-   - `leads` → `contacts` (met business_id link)
+Migratie is volledig uitgevoerd. De huidige live tabellen:
 
-2. **Sync functions updaten:**
-   - `sync-plusvibe-leads` → schrijf naar `contacts` + `contact_campaigns`
-   - `process-gmaps-batch` → schrijf naar `businesses` + `contacts`
+```
+companies   (17k rows)  ← canonical account table
+  └── contacts (27k rows)  ← persoon-pool, herbruikbaar over clients
+        └── leads (24k rows)  ← contact × campaign × client
+```
 
-3. **Deprecated:**
-   - `companies` table (na migratie)
-   - `leads` table (na migratie, hernoemd naar contacts)
-
-Wil je dat ik deze migratie uitwerk en uitvoer?
+- `businesses` tabel: gedropped, vervangen door `companies`
+- `contact_campaigns` tabel: nooit aangemaakt — `leads` dekt dit volledig
+- `sync-plusvibe-leads`: gearchiveerd (PlusVibe vervangen door EmailBison)
+- `emailbison-pusher` schrijft naar `leads` bij push naar EmailBison campaign
