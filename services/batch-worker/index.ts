@@ -9,6 +9,7 @@
  */
 
 import { runWaterfallBatch } from './jobs/waterfall.ts';
+import { runPipeline } from './jobs/pipeline.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3000');
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
@@ -71,6 +72,36 @@ const server = Bun.serve({
         concurrency: body.concurrency ?? 5,
       });
 
+      return Response.json(result);
+    }
+
+    // Volledige sourcing pipeline: source → waterfall → push
+    if (req.method === 'POST' && url.pathname === '/pipeline') {
+      const secret = req.headers.get('x-webhook-secret');
+      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const body = await req.json() as {
+        client_id: string;
+        cell_id?: string;
+        emailbison_campaign_id?: number;
+        campaign_id?: string;
+        sourcing_run_id?: string;
+        steps?: ('source' | 'waterfall' | 'push')[];
+        concurrency?: number;
+        dry_run?: boolean;
+      };
+
+      if (!body.client_id) {
+        return Response.json({ error: 'client_id is required' }, { status: 400 });
+      }
+
+      const steps = body.steps ?? ['source', 'waterfall', 'push'];
+      console.log(`[pipeline] Start — client=${body.client_id} steps=${steps.join('+')}`);
+
+      // Pipeline loopt door, HTTP wacht op resultaat (Railway heeft geen timeout)
+      const result = await runPipeline(body);
       return Response.json(result);
     }
 
