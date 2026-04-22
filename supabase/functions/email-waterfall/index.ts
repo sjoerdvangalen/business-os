@@ -2,22 +2,20 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * Email Waterfall — Multi-step email verification
+ * Email Waterfall — Find then validate, één run
  *
  * Flow:
- *   1. 90-day cache check (email_verified_at within 90 days -> return cached)
- *   2. DNC check (Level 1: global bounces, Level 2: client-specific,
- *                 Level 3: positive reactions = replied/meeting_booked)
- *   3. If contact already has email -> OmniVerifier confirm
- *      Valid + catchall? -> DONE
- *      Invalid -> STOP (status = omni_rejected, email NOT wiped)
- *   4. Enrow pattern verify (5 patterns, free on not_found)
- *      Hit (valid/catch_all)? -> Omni confirm + catchall -> DONE
- *   5. TryKitt search (first_name + last_name + domain)
- *      Found? -> Omni confirm + catchall -> DONE
- *   6. Enrow search (first_name + last_name + domain)
- *      Found? -> Omni confirm + catchall -> DONE
- *   7. Log to contact_validation_log
+ *   1. 90-day cache check
+ *   2. DNC check (contact_id + email — global, client, positief)
+ *   3. Vind email (één van de volgende, in volgorde):
+ *      a. Bestaand email op contact (uit CSV / vorige run)
+ *      b. Enrow patterns (5 parallel, gratis bij not_found)
+ *      c. TryKitt search (naam + domain)
+ *      d. Enrow search (naam + domain)
+ *   4. Omni verify op gevonden email
+ *   5. Enrow catchall check
+ *   6. DNC domain check
+ *   7. Opslaan + log naar contact_validation_log
  *
  * Input:  { contact_id: string, client_id?: string, sourcing_run_id?: string }
  * Output: { email: string | null, source: string, catchall: boolean, cost: number }
@@ -254,9 +252,8 @@ serve(async (req) => {
     const nowIso = now.toISOString();
 
     // 2. 90-day cache check
-    if (contact.email && contact.email_verified_at) {
-      const verifiedAt = new Date(contact.email_verified_at);
-      const ageDays = (now.getTime() - verifiedAt.getTime()) / (1000 * 60 * 60 * 24);
+    if (contact.email && contact.email_verified_at && !force_search) {
+      const ageDays = (now.getTime() - new Date(contact.email_verified_at).getTime()) / 86400000;
       if (ageDays < CACHE_DAYS) {
         return new Response(
           JSON.stringify({ email: contact.email, source: 'cache', catchall: false, cost: 0 }),
@@ -265,29 +262,27 @@ serve(async (req) => {
       }
     }
 
-    // 3. DNC check — Level 1 (global), Level 2 (client), Level 3 (positive reactions)
-    const dncQuery = supabase
-      .from('dnc_entities')
-      .select('entity_type, entity_value, reason, client_id')
-      .or(`entity_type.eq.contact_id,entity_type.eq.email,entity_type.eq.domain`)
-      .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
-
+    // 3. DNC check op contact_id + bestaand email
     const emailLower = contact.email?.toLowerCase();
-    const entityValues = [contact_id, emailLower].filter(Boolean);
+    const entityValues = [contact_id, emailLower].filter(Boolean) as string[];
     if (entityValues.length > 0) {
-      const { data: dncRows } = await dncQuery.in('entity_value', entityValues);
+      const { data: dncRows } = await supabase
+        .from('dnc_entities')
+        .select('entity_type, entity_value, reason, client_id')
+        .or('entity_type.eq.contact_id,entity_type.eq.email')
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .in('entity_value', entityValues);
 
       for (const row of dncRows ?? []) {
-        const isLevel3 = DNC_POSITIVE_REASONS.includes(row.reason);
+        const isPositive = DNC_POSITIVE_REASONS.includes(row.reason);
         const appliesToClient = row.client_id === null || row.client_id === client_id;
-
-        if (!isLevel3 && appliesToClient) {
+        if (!isPositive && appliesToClient) {
           return new Response(
             JSON.stringify({ email: null, source: 'dnc_suppressed', reason: row.reason, catchall: false, cost: 0 }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-        if (isLevel3 && client_id && row.client_id === client_id) {
+        if (isPositive && client_id && row.client_id === client_id) {
           return new Response(
             JSON.stringify({ email: null, source: 'dnc_positive', reason: row.reason, catchall: false, cost: 0 }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -302,95 +297,61 @@ serve(async (req) => {
       : { data: null };
 
     const domain = company?.domain ?? extractDomainFromWebsite(company?.website ?? null);
-
-    let foundEmail: string | null = contact.email ?? null;
-    let foundSource = '';
+    const firstName = contact.first_name ?? '';
+    const lastName = contact.last_name ?? '';
     let totalCost = 0;
 
-    // 5. If contact already has email, run OmniVerifier confirm
-    // SKIP reconfirm when force_search=true (e.g. Enrow already flagged it invalid)
-    if (foundEmail && !force_search) {
-      const omni = await verifyWithOmni(foundEmail);
-      totalCost += 0.001;
-      await sleep(RATE_OMNI_MS);
+    // ── FASE 1: VIND EMAIL ──────────────────────────────────────────────────────────
 
-      if (omni.valid) {
+    let foundEmail: string | null = contact.email ?? null;
+    let foundSource = contact.email ? 'existing' : '';
+
+    // Als geen email (of force_search), probeer te vinden via patronen + search
+    if (!foundEmail || force_search) {
+      foundEmail = null;
+      foundSource = '';
+
+      if (!domain) {
         await supabase.from('contacts').update({
-          email_verified_at: nowIso,
-          email_catchall: omni.catchall,
-          email_waterfall_status: 'verified',
-          email_verified: true,
+          email_verified: false, email_waterfall_status: 'failed',
         }).eq('id', contact_id);
-
-        await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, 'omni_reconfirm', 'valid', {
-          omni_result: omni.result,
-          catchall: omni.catchall,
-        });
-
         return new Response(
-          JSON.stringify({ email: foundEmail, source: 'omni_reconfirm', catchall: omni.catchall, cost: totalCost }),
+          JSON.stringify({ email: null, source: 'no_domain', catchall: false, cost: 0 }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Email failed OmniVerifier — DO NOT wipe, just mark rejected
-      await supabase.from('contacts').update({
-        email_verified: false,
-        email_waterfall_status: 'omni_rejected',
-        email_catchall: null,
-      }).eq('id', contact_id);
-
-      await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, 'omni_rejected', 'rejected', {
-        omni_result: omni.result,
-      });
-
-      // Reset foundEmail so we try pattern/search below
-      foundEmail = null;
-    }
-
-    if (!domain) {
-      await supabase.from('contacts').update({
-        email_verified: false, email_waterfall_status: 'failed',
-      }).eq('id', contact_id);
-      return new Response(
-        JSON.stringify({ email: null, source: 'no_domain', catchall: false, cost: totalCost }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const firstName = contact.first_name ?? '';
-    const lastName = contact.last_name ?? '';
-
-    // 6. Enrow pattern verify (5 patterns — parallel)
-    const patterns = generatePatterns(firstName, lastName, domain);
-    if (patterns.length > 0) {
-      const results = await Promise.all(patterns.map(p => verifyWithEnrow(p)));
-      const hitIndex = results.findIndex(r => r.valid);
-      if (hitIndex !== -1) {
-        foundEmail = patterns[hitIndex];
-        foundSource = 'enrow_pattern';
+      // 4a. Enrow patterns (5 parallel — gratis bij not_found)
+      const patterns = generatePatterns(firstName, lastName, domain);
+      if (patterns.length > 0) {
+        const results = await Promise.all(patterns.map(p => verifyWithEnrow(p)));
+        const hitIndex = results.findIndex(r => r.valid);
+        if (hitIndex !== -1) {
+          foundEmail = patterns[hitIndex];
+          foundSource = 'enrow_pattern';
+        }
       }
-    }
 
-    // 7. TryKitt search fallback
-    if (!foundEmail && firstName && lastName) {
-      await sleep(RATE_TRYKITT_MS);
-      const trykitt = await findEmailWithTryKitt(firstName, lastName, domain);
-      totalCost += 0.005;
-      if (trykitt.email) {
-        foundEmail = trykitt.email;
-        foundSource = 'trykitt_find';
+      // 4b. TryKitt search
+      if (!foundEmail && firstName && lastName) {
+        await sleep(RATE_TRYKITT_MS);
+        const trykitt = await findEmailWithTryKitt(firstName, lastName, domain);
+        totalCost += 0.005;
+        if (trykitt.email) {
+          foundEmail = trykitt.email;
+          foundSource = 'trykitt_find';
+        }
       }
-    }
 
-    // 8. Enrow search fallback
-    if (!foundEmail && firstName && lastName) {
-      await sleep(RATE_ENROW_MS);
-      const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain);
-      totalCost += 0.005;
-      if (enrowEmail) {
-        foundEmail = enrowEmail;
-        foundSource = 'enrow_find';
+      // 4c. Enrow search
+      if (!foundEmail && firstName && lastName) {
+        await sleep(RATE_ENROW_MS);
+        const enrowEmail = await findEmailWithEnrow(firstName, lastName, domain);
+        totalCost += 0.005;
+        if (enrowEmail) {
+          foundEmail = enrowEmail;
+          foundSource = 'enrow_find';
+        }
       }
     }
 
@@ -398,38 +359,34 @@ serve(async (req) => {
       await supabase.from('contacts').update({
         email_verified: false, email_waterfall_status: 'failed',
       }).eq('id', contact_id);
-
-      await logValidation(supabase, contact_id, sourcing_run_id, null, foundSource || 'failed', 'failed', {
-        patterns_tried: patterns,
-      });
-
+      await logValidation(supabase, contact_id, sourcing_run_id, null, 'failed', 'failed', {});
       return new Response(
         JSON.stringify({ email: null, source: 'failed', catchall: false, cost: totalCost }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // 9. OmniVerifier confirm on found email + Enrow catchall detection
+    // ── FASE 2: VALIDEER EMAIL ──────────────────────────────────────────────────────
+
+    // 5. Omni verify
     const omni = await verifyWithOmni(foundEmail);
     totalCost += 0.001;
     await sleep(RATE_OMNI_MS);
 
     if (!omni.valid) {
       await supabase.from('contacts').update({
-        email_verified: false, email_waterfall_status: 'failed',
+        email_verified: false, email_waterfall_status: 'omni_rejected',
       }).eq('id', contact_id);
-
       await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, foundSource, 'failed', {
         omni_result: omni.result,
       });
-
       return new Response(
         JSON.stringify({ email: null, source: 'omni_rejected', catchall: false, cost: totalCost }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Catchall check via Enrow verify
+    // 6. Enrow catchall check (Omni zegt soms catch-all, Enrow is accurater)
     let catchall = omni.catchall;
     if (!catchall) {
       const enrowCheck = await verifyWithEnrow(foundEmail);
@@ -437,7 +394,7 @@ serve(async (req) => {
       if (enrowCheck.catchall) catchall = true;
     }
 
-    // 10. DNC check for found email domain
+    // 7. DNC check op gevonden email domain
     const foundDomain = foundEmail.split('@')[1]?.toLowerCase();
     if (foundDomain) {
       const { data: domainDnc } = await supabase
@@ -460,9 +417,8 @@ serve(async (req) => {
       }
     }
 
-    // 11. Save verified email — HARD RULE: new email always replaces old, gets priority
+    // 8. Opslaan
     await replaceContactEmail(supabase, contact_id, foundEmail, nowIso, catchall, foundSource);
-
     await logValidation(supabase, contact_id, sourcing_run_id, foundEmail, foundSource, 'valid', {
       omni_result: omni.result,
       catchall,
