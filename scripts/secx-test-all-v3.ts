@@ -7,7 +7,8 @@ import { validateBullets, buildRetryFeedback } from "./secx-validator";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 const PROMPTS_DIR = join(import.meta.dir, "secx-prompts");
 const CSV_PATH = "/Users/sjoerdvangalen/Downloads/SentioCX-or-Creative-Campaign-Default-view-export-1776689499547.csv";
-const CONCURRENCY = 700;
+const CONCURRENCY = 5000;
+const RPM_LIMIT = 9500; // 500 below Tier 4 limit of 10,000
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;
 const WARMUP = true;
@@ -109,6 +110,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+class RateLimiter {
+  private timestamps: number[] = [];
+  private readonly windowMs: number;
+  private readonly maxRequests: number;
+
+  constructor(maxRequests: number, windowSeconds: number = 60) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowSeconds * 1000;
+  }
+
+  async acquire(): Promise<void> {
+    const now = Date.now();
+    // Remove timestamps outside the window
+    this.timestamps = this.timestamps.filter((t) => now - t < this.windowMs);
+
+    if (this.timestamps.length >= this.maxRequests) {
+      // Wait until the oldest request falls outside the window
+      const oldest = this.timestamps[0];
+      const waitMs = oldest + this.windowMs - now + 50; // 50ms buffer
+      if (waitMs > 0) {
+        await sleep(waitMs);
+      }
+      return this.acquire();
+    }
+
+    this.timestamps.push(now);
+  }
+
+  get currentCount(): number {
+    const now = Date.now();
+    return this.timestamps.filter((t) => now - t < this.windowMs).length;
+  }
+}
+
 async function warmupCache(client: OpenAI, persona: Persona): Promise<void> {
   if (!WARMUP) return;
   const systemPrompt = loadPrompt(persona);
@@ -132,8 +167,11 @@ async function warmupCache(client: OpenAI, persona: Persona): Promise<void> {
 async function generateBullets(
   client: OpenAI,
   rec: Record,
+  rateLimiter: RateLimiter,
   feedback?: string
 ): Promise<{ bullets: string[] | null; usage: TokenUsage | null }> {
+  await rateLimiter.acquire();
+
   const systemPrompt = loadPrompt(rec.persona);
   const userMessage = buildUserMessage(rec);
 
@@ -177,12 +215,13 @@ async function generateBullets(
 
 async function generateBulletsWithValidation(
   client: OpenAI,
-  rec: Record
+  rec: Record,
+  rateLimiter: RateLimiter
 ): Promise<{ bullets: string[] | null; usage: TokenUsage | null; score: number; retryCount: number }> {
   let totalUsage: TokenUsage | null = null;
 
   // First attempt
-  const first = await generateBullets(client, rec);
+  const first = await generateBullets(client, rec, rateLimiter);
   totalUsage = first.usage;
   if (!first.bullets) {
     return { bullets: null, usage: totalUsage, score: 0, retryCount: 0 };
@@ -195,7 +234,7 @@ async function generateBulletsWithValidation(
 
   // Retry with feedback (max 1 validation retry)
   const feedback = buildRetryFeedback(v1, rec.persona);
-  const second = await generateBullets(client, rec, feedback);
+  const second = await generateBullets(client, rec, rateLimiter, feedback);
   if (second.usage) {
     totalUsage = {
       prompt_tokens: (totalUsage?.prompt_tokens ?? 0) + second.usage.prompt_tokens,
@@ -225,6 +264,9 @@ async function runBatch(
   const results: Result[] = [];
   const queue = [...records];
   const inFlight = new Set<Promise<void>>();
+  const rateLimiter = new RateLimiter(RPM_LIMIT);
+
+  let lastRateLog = 0;
 
   return new Promise((resolve) => {
     function processNext(): void {
@@ -236,10 +278,18 @@ async function runBatch(
 
       const rec = queue.shift()!;
       const promise = (async () => {
-        const { bullets, usage, score, retryCount } = await generateBulletsWithValidation(client, rec);
+        const { bullets, usage, score, retryCount } = await generateBulletsWithValidation(client, rec, rateLimiter);
         results.push({ persona, rec, bullets, usage, validatorScore: score, retryCount });
         onProgress(results.length, records.length);
         inFlight.delete(promise);
+
+        // Log rate limiter status periodically
+        const now = Date.now();
+        if (now - lastRateLog > 5000) {
+          console.log(`[RATE] ${rateLimiter.currentCount}/${RPM_LIMIT} RPM (in-flight: ${inFlight.size})`);
+          lastRateLog = now;
+        }
+
         processNext();
       })();
       inFlight.add(promise);
@@ -258,7 +308,7 @@ async function main() {
 
   const records = parseCSV(CSV_PATH);
   console.log(`[INFO] Loaded ${records.length} valid records from CSV`);
-  console.log(`[INFO] Concurrency: ${CONCURRENCY} parallel requests`);
+  console.log(`[INFO] Concurrency: ${CONCURRENCY} parallel requests (rate limited to ${RPM_LIMIT} RPM)`);
 
   const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
