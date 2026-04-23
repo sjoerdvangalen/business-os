@@ -14,7 +14,8 @@ STEP 0 — Extract from input before writing:
   ALWAYS use round numbers: 200+, 500+, 1,000+, 5,000+. NEVER 501+, 1001+, 5001+.
   NEVER copy raw numbers from input. ALWAYS map to the ranges above.
   - Extract 1-2 ADDITIONAL data points from Company Summary if explicitly stated: user base, customer count, AUM, revenue, geographic reach, product volume
-  NEVER invent data points. If summary has no additional hard metrics, use only employee count.
+  A data point MUST contain a NUMBER. Descriptions of what the company does (e.g., "philanthropic expertise", "auto finance solutions", "Healthcare Map") are NOT data points.
+  NEVER invent data points. If summary has no additional hard metrics beyond employee count, use the bare baseline without data_point.
 If NO platform named: use generic based on industry:
     STAFFING: ATS
     FINANCIAL: CRM
@@ -41,65 +42,69 @@ FAILURE 1: "Automate routing from Salesforce to 500+ engineers via intent API."
   WHY WRONG: "Salesforce" was invented. The input did not name Salesforce. The model hallucinates well-known platforms.
   FIX: "Automate routing from the support platform to 500+ technical counterparts via intent API."
 
-FAILURE 2: "Deploy intent-based matching with your existing stack without new infrastructure or custom code."
+FAILURE 2: "Deploy intent-based matching with your existing stack without new infrastructure or replacing systems."
   WHY WRONG: TWO constraints joined by "or". Bullet 2 MUST have exactly ONE constraint. NEVER use "or".
-  FIX: "Deploy intent-based matching with your existing stack without any new custom code."
+  FIX: "Deploy intent-based matching with your existing stack without replacing your current stack."
 
-FAILURE 3: "Deploy skills-based routing with your existing stack without custom code."
-  WHY WRONG: Only 10 words. Bullet 2 is consistently too short because the model omits "any" and uses short constraints.
-  FIX: "Deploy skills-based routing with your existing stack without any dev team cycles."
+FAILURE 3: "Deploy skills-based routing with your existing stack without replacing systems."
+  WHY WRONG: Only 10 words. Bullet 2 is consistently too short because the model omits "your current" and uses short constraints.
+  FIX: "Deploy skills-based routing with your existing stack without replacing your current stack."
 
 FAILURE 4: "Integrate Salesforce and Zendesk via pre-built connectors without dev team involvement and project overhead."
-  WHY WRONG: Invented platforms (Salesforce, Zendesk). Two risks joined by "and" ("dev team involvement and project overhead"). Bullet 3 MUST have exactly ONE risk. NEVER use "and".
-  FIX: "Integrate with your existing stack via open API without any vendor lock-in."
+  WHY WRONG: Invented platforms (Salesforce, Zendesk). Two risks joined by "and" ("dev team involvement and project overhead"). Bullet 3 MUST have exactly ONE outcome. NEVER use "and".
+  FIX: "Integrate with your existing stack via open API without replacing your stack."
 
 ---
 
-REFERENCE EXAMPLES — 10/10 SCORED OUTPUTS WITH EXPLANATIONS:
+REFERENCE EXAMPLES — QUALITY TIERS:
 
-EXAMPLE A — Staffing (Bullhorn, 1,000+ employees)
-B1: "Automate routing from the ATS to 1,000+ technical counterparts via API-first intent routing."
-  WHY 10/10: 13 words. "ATS" (staffing generic, no hallucination). "1,000+" (mapped scale). "technical counterparts" (tech role). "via API-first intent routing" (mandatory phrase).
-B2: "Deploy patented intent-based routing with your existing stack without any new custom code."
-  WHY 10/10: 14 words. "patented intent-based routing" (one capability). "without any new custom code" (one constraint). NO "or".
-B3: "Integrate with your existing stack via open API without any vendor lock-in."
-  WHY 10/10: 13 words. "existing stack" (generic, no invention). "via open API" (one integration path). "without any vendor lock-in" (one risk).
+TIER 1 (Strong): B1 is clean bare baseline. B2 or B3 contains a real data point from the company summary.
 
 EXAMPLE B — Financial (City National Bank, 1,000+ employees, $93B assets)
-B1: "Automate routing from the CRM to 1,000+ technical counterparts serving $93B in assets via API-first intent routing."
-  WHY 10/10: 16 words. "$93B in assets" (real data point). "via API-first intent routing" (mandatory).
-B2: "Deploy patented intent-based routing with your existing CRM without any new infrastructure."
-  WHY 10/10: 13 words. "patented intent-based routing" (one capability). "existing CRM" (uses generic name). "without any new infrastructure" (one constraint).
-B3: "Integrate with your existing CRM via open API without any vendor lock-in."
-  WHY 10/10: 12 words. "existing CRM" (generic, no invention). "via open API" (one integration path). "without vendor lock-in" (one risk).
+B1: "Automate routing from the CRM to technical counterparts via API-first intent routing."
+  WHY STRONG: 12 words. Clean bare baseline. No employee count. "via API-first intent routing" (mandatory).
+B2: "Deploy patented intent-based routing with your existing CRM serving $93B assets without replacing your existing CRM."
+  WHY CORRECT: 15 words. "$93B assets" (real data point in B2). "patented intent-based routing" (one capability). "without replacing your existing CRM" (one constraint). NO "or".
+B3: "Integrate with your existing CRM via open API without replacing your stack."
+  WHY CORRECT: 11 words. "existing CRM" (generic, no invention). "via open API" (one integration path). "without replacing your stack" (one outcome).
+
+TIER 2 (Acceptable): No additional data point available in summary. Correct but less specific.
+
+EXAMPLE A — Staffing (Bullhorn, 1,000+ employees)
+B1: "Automate routing from the ATS to technical counterparts via API-first intent routing."
+  WHY ACCEPTABLE: 11 words. "ATS" (staffing generic, no hallucination). "technical counterparts" (tech role). "via API-first intent routing" (mandatory phrase). No data point in B1.
+B2: "Deploy patented intent-based routing with your existing stack without replacing your current stack."
+  WHY CORRECT: 13 words. "patented intent-based routing" (one capability). "without replacing your current stack" (one constraint). NO "or".
+B3: "Integrate with your existing stack via open API without replacing your stack."
+  WHY CORRECT: 11 words. "existing stack" (generic, no invention). "via open API" (one integration path). "without replacing your stack" (one outcome).
 
 EXAMPLE C — Healthcare (PharmaForce, 200+ employees)
-B1: "Automate routing from the EHR to 200+ technical counterparts via API-first intent routing."
-  WHY 10/10: 13 words. "EHR" (healthcare generic). "200+" (mapped). "via API-first intent routing" (mandatory).
-B2: "Deploy AI routing rules with your existing EHR without any rebuilds."
-  WHY 10/10: 12 words. "AI routing rules" (one capability). "without any rebuilds" (one constraint).
-B3: "Integrate with your existing EHR via open API without any vendor lock-in."
-  WHY 10/10: 12 words. "existing EHR" (generic). "via open API" (one integration path). "without vendor lock-in" (one risk).
+B1: "Automate routing from the EHR to technical counterparts via API-first intent routing."
+  WHY ACCEPTABLE: 11 words. "EHR" (healthcare generic). "via API-first intent routing" (mandatory). No data point in B1.
+B2: "Deploy AI routing rules with your existing EHR without replacing your existing EHR."
+  WHY CORRECT: 12 words. "AI routing rules" (one capability). "without replacing your existing EHR" (one constraint).
+B3: "Integrate with your existing EHR via open API without replacing your stack."
+  WHY CORRECT: 11 words. "existing EHR" (generic). "via open API" (one integration path). "without replacing your stack" (one outcome).
 
 EXAMPLE D — SaaS (Smartcat, 200+ employees)
-B1: "Automate routing from the support platform to 200+ technical counterparts via API-first intent routing."
-  WHY 10/10: 13 words. "support platform" (SaaS generic). "200+" (mapped). "via API-first intent routing" (mandatory).
-B2: "Deploy patented intent-based routing with your existing stack without any dev team cycles."
-  WHY 10/10: 14 words. "patented intent-based routing" (one capability). "without any dev team cycles" (one constraint, 5 words).
-B3: "Integrate with your existing stack via open API without any vendor lock-in."
-  WHY 10/10: 12 words. "existing stack" (generic). "via open API" (one integration path). "without vendor lock-in" (one risk).
+B1: "Automate routing from the support platform to technical counterparts via API-first intent routing."
+  WHY ACCEPTABLE: 11 words. "support platform" (SaaS generic). "via API-first intent routing" (mandatory). No data point in B1.
+B2: "Deploy patented intent-based routing with your existing stack without replacing your current stack."
+  WHY CORRECT: 13 words. "patented intent-based routing" (one capability). "without replacing your current stack" (one constraint, 5 words).
+B3: "Integrate with your existing stack via open API without replacing your stack."
+  WHY CORRECT: 11 words. "existing stack" (generic). "via open API" (one integration path). "without replacing your stack" (one outcome).
 
 EXAMPLE E — Manufacturing (Lucid Motors, 1,000+ employees)
-B1: "Automate routing from core systems to 1,000+ technical counterparts via API-first intent routing."
-  WHY 10/10: 13 words. "core systems" (manufacturing generic). "1,000+" (mapped). "via API-first intent routing" (mandatory).
-B2: "Deploy patented intent-based routing with your existing stack without any new infrastructure."
-  WHY 10/10: 13 words. "patented intent-based routing" (one capability). One constraint.
-B3: "Integrate with your existing stack via open API without any vendor lock-in."
-  WHY 10/10: 12 words. "existing stack" (generic). "via open API" (one integration path). "without vendor lock-in" (one risk).
+B1: "Automate routing from core systems to technical counterparts via API-first intent routing."
+  WHY ACCEPTABLE: 11 words. "core systems" (manufacturing generic). "via API-first intent routing" (mandatory). No data point in B1.
+B2: "Deploy patented intent-based routing with your existing stack without replacing your current stack."
+  WHY CORRECT: 13 words. "patented intent-based routing" (one capability). One constraint.
+B3: "Integrate with your existing stack via open API without replacing your stack."
+  WHY CORRECT: 11 words. "existing stack" (generic). "via open API" (one integration path). "without replacing your stack" (one outcome).
 
 ---
 
-BULLET 1 — Automate [routing] from [system] to [team+scale] [data_point] via API-first intent routing.
+BULLET 1 — Automate [routing] from [system] to technical counterparts via API-first intent routing.
   System: ONLY use platform explicitly named in input. If none, use generic by industry:
     STAFFING: the ATS
     FINANCIAL: the CRM
@@ -107,13 +112,12 @@ BULLET 1 — Automate [routing] from [system] to [team+scale] [data_point] via A
     SAAS: the support platform
     MANUFACTURING: core systems
     ENGINEERING: existing systems
-  NEVER invent Salesforce, Bullhorn, Workday, Snowflake, Zendesk, or any platform not in input.
-  Team: technical counterparts + scale from STEP 0
-  [data_point] (optional — insert ONLY if a second data point is available from summary): Add after "counterparts" as "serving [fact]" or "across [fact]". Must be MAXIMUM 4 words. Examples: "serving $93B assets", "across 12 markets". NEVER invent. NEVER use percentages or time metrics from summary.
+  NEVER invent platform names.
+  NO data_point in B1. B1 is always the bare baseline.
   MUST include "via API-first intent routing"
-  WORD COUNT GUARANTEE: Base = "Automate routing from" (3) + system (1-2) + "to" (1) + scale (1) + "technical counterparts" (2) + "via API-first intent routing." (4) = minimum 13 words. If data_point added, ensure total stays within 12-20. If the data_point would push B1 over 20 words, OMIT it.
+  WORD COUNT GUARANTEE: "Automate routing from" (3) + system (1-2) + "to" (1) + "technical counterparts" (2) + "via API-first intent routing." (4) = 12 words minimum.
 
-BULLET 2 — Deploy [capability] with your existing [stack] without any [constraint].
+BULLET 2 — Deploy [capability] with your existing [stack] without [constraint].
   CRITICAL: Exactly ONE capability. Exactly ONE constraint. NEVER use "or".
   Capability (pick exactly ONE): patented intent-based routing, AI routing rules, skills-based routing
   Stack: use named platform from input, or generic by industry:
@@ -125,15 +129,15 @@ BULLET 2 — Deploy [capability] with your existing [stack] without any [constra
     ENGINEERING: stack
   NEVER invent platform names.
   Constraint by industry (pick exactly ONE — must be 5+ words):
-    STAFFING: without adding any new custom code
-    FINANCIAL: without any new infrastructure changes
-    HEALTHCARE: without any system rebuilds needed
-    SAAS: without any dev team cycles needed
-    MANUFACTURING: without any new infrastructure changes
-    ENGINEERING: without any new custom code changes
+    STAFFING: without replacing your existing ATS
+    FINANCIAL: without replacing your existing CRM
+    HEALTHCARE: without replacing your existing EHR
+    SAAS: without replacing your current stack
+    MANUFACTURING: without replacing your current stack
+    ENGINEERING: without replacing your current stack
   WORD COUNT GUARANTEE: "Deploy" (1) + capability (2-3) + "with your existing" (3) + stack (1) + constraint (5-6) + "." = minimum 12 words.
 
-BULLET 3 — Integrate with your existing [stack] via open API without any vendor lock-in.
+BULLET 3 — Integrate with your existing [stack] via open API without replacing your stack.
   Stack: use named platform from input, or generic by industry:
     STAFFING: ATS
     FINANCIAL: CRM
@@ -142,18 +146,16 @@ BULLET 3 — Integrate with your existing [stack] via open API without any vendo
     MANUFACTURING: stack
     ENGINEERING: stack
   NEVER invent platform names.
-  CRITICAL: Exactly ONE integration path. Exactly ONE risk. NEVER use "or".
-  WORD COUNT GUARANTEE: "Integrate" (1) + "with your existing" (3) + stack (1) + "via open API" (3) + "without any vendor lock-in" (4) + "." = minimum 12 words. Ensure total stays within 12-20.
+  CRITICAL: Exactly ONE integration path. Exactly ONE outcome. NEVER use "or".
+  WORD COUNT GUARANTEE: "Integrate" (1) + "with your existing" (3) + stack (1) + "via open API" (3) + "without replacing your stack." (4) + "." = minimum 12 words. Ensure total stays within 12-20.
 
 ---
 
-PRE-FLIGHT CHECK — Before outputting JSON, verify ALL of the following:
-1. Each bullet is exactly 12-20 words. Count EVERY word including numbers.
-2. No bullet exceeds 20 words. If B1 exceeds 20, remove the data_point from B1.
-3. No company name appears in any bullet.
-4. No percentages or time metrics from the input summary appear in any bullet.
-5. B2 has exactly ONE constraint. B3 has exactly ONE risk. NEVER use "and" or "or" in B2 or B3.
-6. All three bullets end with a period.
+PRE-FLIGHT CHECK — Before outputting JSON, verify:
+1. Each bullet is 12-20 words.
+2. B1 has NO data point. B1 is always the bare baseline ending with "via API-first intent routing."
+3. B2 has ONE constraint. B3 has ONE outcome. No "and" or "or" in B2/B3.
+4. All bullets end with a period.
 
 OUTPUT FORMAT (strict JSON — no markdown, no explanation):
 
