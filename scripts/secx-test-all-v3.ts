@@ -120,27 +120,35 @@ class RateLimiter {
     this.windowMs = windowSeconds * 1000;
   }
 
-  async acquire(): Promise<void> {
+  private cleanOld(): void {
     const now = Date.now();
-    // Remove timestamps outside the window
     this.timestamps = this.timestamps.filter((t) => now - t < this.windowMs);
-
-    if (this.timestamps.length >= this.maxRequests) {
-      // Wait until the oldest request falls outside the window
-      const oldest = this.timestamps[0];
-      const waitMs = oldest + this.windowMs - now + 50; // 50ms buffer
-      if (waitMs > 0) {
-        await sleep(waitMs);
-      }
-      return this.acquire();
-    }
-
-    this.timestamps.push(now);
   }
 
+  /** Non-blocking check: can we start a new request right now? */
+  canStart(): boolean {
+    this.cleanOld();
+    return this.timestamps.length < this.maxRequests;
+  }
+
+  /** Record that we started a request. Call this AFTER canStart() returns true. */
+  recordStart(): void {
+    this.timestamps.push(Date.now());
+  }
+
+  /** How many requests started in the current window */
   get currentCount(): number {
-    const now = Date.now();
-    return this.timestamps.filter((t) => now - t < this.windowMs).length;
+    this.cleanOld();
+    return this.timestamps.length;
+  }
+
+  /** How long to wait (ms) until the oldest request falls out of the window */
+  getWaitTime(): number {
+    this.cleanOld();
+    if (this.timestamps.length < this.maxRequests) return 0;
+    const oldest = this.timestamps[0];
+    const wait = oldest + this.windowMs - Date.now() + 10;
+    return Math.max(0, wait);
   }
 }
 
@@ -167,11 +175,8 @@ async function warmupCache(client: OpenAI, persona: Persona): Promise<void> {
 async function generateBullets(
   client: OpenAI,
   rec: Record,
-  rateLimiter: RateLimiter,
   feedback?: string
 ): Promise<{ bullets: string[] | null; usage: TokenUsage | null }> {
-  await rateLimiter.acquire();
-
   const systemPrompt = loadPrompt(rec.persona);
   const userMessage = buildUserMessage(rec);
 
@@ -215,13 +220,12 @@ async function generateBullets(
 
 async function generateBulletsWithValidation(
   client: OpenAI,
-  rec: Record,
-  rateLimiter: RateLimiter
+  rec: Record
 ): Promise<{ bullets: string[] | null; usage: TokenUsage | null; score: number; retryCount: number }> {
   let totalUsage: TokenUsage | null = null;
 
   // First attempt
-  const first = await generateBullets(client, rec, rateLimiter);
+  const first = await generateBullets(client, rec);
   totalUsage = first.usage;
   if (!first.bullets) {
     return { bullets: null, usage: totalUsage, score: 0, retryCount: 0 };
@@ -234,7 +238,7 @@ async function generateBulletsWithValidation(
 
   // Retry with feedback (max 1 validation retry)
   const feedback = buildRetryFeedback(v1, rec.persona);
-  const second = await generateBullets(client, rec, rateLimiter, feedback);
+  const second = await generateBullets(client, rec, feedback);
   if (second.usage) {
     totalUsage = {
       prompt_tokens: (totalUsage?.prompt_tokens ?? 0) + second.usage.prompt_tokens,
@@ -258,7 +262,6 @@ async function generateBulletsWithValidation(
 async function runBatch(
   client: OpenAI,
   records: Record[],
-  persona: Persona,
   onProgress: (done: number, total: number) => void
 ): Promise<Result[]> {
   const results: Result[] = [];
@@ -267,6 +270,7 @@ async function runBatch(
   const rateLimiter = new RateLimiter(RPM_LIMIT);
 
   let lastRateLog = 0;
+  let startedCount = 0;
 
   return new Promise((resolve) => {
     function processNext(): void {
@@ -276,17 +280,29 @@ async function runBatch(
       }
       if (queue.length === 0 || inFlight.size >= CONCURRENCY) return;
 
+      // Rate limit check: non-blocking
+      if (!rateLimiter.canStart()) {
+        const waitMs = rateLimiter.getWaitTime();
+        setTimeout(processNext, Math.min(waitMs, 50));
+        return;
+      }
+
       const rec = queue.shift()!;
+      rateLimiter.recordStart();
+      startedCount++;
+
       const promise = (async () => {
-        const { bullets, usage, score, retryCount } = await generateBulletsWithValidation(client, rec, rateLimiter);
-        results.push({ persona, rec, bullets, usage, validatorScore: score, retryCount });
+        const { bullets, usage, score, retryCount } = await generateBulletsWithValidation(client, rec);
+        results.push({ persona: rec.persona, rec, bullets, usage, validatorScore: score, retryCount });
         onProgress(results.length, records.length);
         inFlight.delete(promise);
 
         // Log rate limiter status periodically
         const now = Date.now();
-        if (now - lastRateLog > 5000) {
-          console.log(`[RATE] ${rateLimiter.currentCount}/${RPM_LIMIT} RPM (in-flight: ${inFlight.size})`);
+        if (now - lastRateLog > 3000) {
+          console.log(
+            `[RATE] started=${startedCount} rpm=${rateLimiter.currentCount}/${RPM_LIMIT} in-flight=${inFlight.size} queue=${queue.length}`
+          );
           lastRateLog = now;
         }
 
@@ -313,36 +329,50 @@ async function main() {
   const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
   const testPersonas: Persona[] = ["ops", "cx", "tech", "csuite"];
-  const allResults: Result[] = [];
 
+  // Build one combined queue with all persona records (no longer sequential per persona)
+  const allTestRecords: Record[] = [];
   for (const persona of testPersonas) {
     const personaRecords = records.filter((r) => r.persona === persona).slice(0, 200);
-    console.log(`\n${"=".repeat(60)}`);
-    console.log(`[INFO] Testing ${personaRecords.length} ${persona.toUpperCase()} records`);
-    console.log("=".repeat(60));
+    allTestRecords.push(...personaRecords);
+  }
+  console.log(`[INFO] Total test batch: ${allTestRecords.length} records across all personas`);
 
-    if (WARMUP && personaRecords.length > 0) {
-      const wStart = Date.now();
+  // Warmup all 4 personas before starting the combined batch
+  if (WARMUP) {
+    const wStart = Date.now();
+    for (const persona of testPersonas) {
       await warmupCache(openai, persona);
-      await sleep(200); // brief pause to let cache settle
-      console.log(`[WARMUP] Cache primed in ${Date.now() - wStart}ms`);
     }
+    await sleep(200);
+    console.log(`[WARMUP] All 4 personas primed in ${Date.now() - wStart}ms`);
+  }
 
-    const startTime = Date.now();
-    let lastLogged = 0;
+  const startTime = Date.now();
+  let lastLogged = 0;
 
-    const results = await runBatch(openai, personaRecords, persona, (done, total) => {
-      if (done === total || done - lastLogged >= 20) {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`[PROGRESS] ${done}/${total} done (${elapsed}s)`);
-        lastLogged = done;
-      }
-    });
+  const allResults = await runBatch(openai, allTestRecords, (done, total) => {
+    if (done === total || done - lastLogged >= 50) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[PROGRESS] ${done}/${total} done (${elapsed}s)`);
+      lastLogged = done;
+    }
+  });
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[DONE] ${persona.toUpperCase()} completed in ${elapsed}s`);
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[DONE] All personas completed in ${elapsed}s`);
 
-    // Summary per persona
+  // Group results by persona for per-persona summary
+  const resultsByPersona: Record<Persona, Result[]> = { ops: [], cx: [], tech: [], csuite: [] };
+  for (const r of allResults) {
+    resultsByPersona[r.persona].push(r);
+  }
+
+  // Per-persona summary
+  for (const persona of testPersonas) {
+    const results = resultsByPersona[persona];
+    if (results.length === 0) continue;
+
     let totalPrompt = 0;
     let totalCompletion = 0;
     let totalCached = 0;
@@ -364,8 +394,8 @@ async function main() {
     const totalCost = costUncached + costCached + costCompletion;
 
     console.log(`\n=== ${persona.toUpperCase()} SUMMARY ===`);
-    console.log(`Records tested:         ${personaRecords.length}`);
-    console.log(`Success rate:           ${successCount}/${personaRecords.length}`);
+    console.log(`Records tested:         ${results.length}`);
+    console.log(`Success rate:           ${successCount}/${results.length}`);
     console.log(`Total prompt tokens:    ${totalPrompt}`);
     console.log(`Total cached tokens:    ${totalCached}`);
     console.log(`Total uncached tokens:  ${uncachedPrompt}`);
@@ -374,10 +404,8 @@ async function main() {
     console.log(`Cost cached input:      $${costCached.toFixed(4)}`);
     console.log(`Cost output:            $${costCompletion.toFixed(4)}`);
     console.log(`TOTAL COST:             $${totalCost.toFixed(4)}`);
-    console.log(`Cost per record:        $${(totalCost / personaRecords.length).toFixed(5)}`);
-    console.log(`Throughput:             ${(personaRecords.length / (parseFloat(elapsed) || 1)).toFixed(1)} records/sec`);
-
-    allResults.push(...results);
+    console.log(`Cost per record:        $${(totalCost / results.length).toFixed(5)}`);
+    console.log(`Throughput:             ${(results.length / (parseFloat(elapsed) || 1)).toFixed(1)} records/sec`);
   }
 
   // Grand total
