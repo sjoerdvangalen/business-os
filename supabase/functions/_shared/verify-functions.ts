@@ -8,32 +8,46 @@ export async function verifyFunctions() {
 
   // List of functions that SHOULD be active (based on codebase)
   const expectedActive = [
-    // PlusVibe Sync
-    'sync-plusvibe-campaigns',
-    'sync-plusvibe-accounts',
-    'sync-plusvibe-leads',
-    'sync-plusvibe-warmup',
-    'sync-sequences',
     // EmailBison Sync
     'sync-emailbison-campaigns',
     'sync-emailbison-accounts',
     'sync-emailbison-sequences',
+    'sync-domains',
     // Webhooks
-    'webhook-receiver',
     'webhook-meeting',
     'webhook-slack-interaction',
     'webhook-emailbison',
+    'webhook-jotform-intake',
     // Processing
     'meeting-review',
-    'populate-daily-kpis',
     'campaign-monitor',
     'domain-monitor',
-    'sync-domains',
+    'daily-digest',
     // Lead Gen
     'process-gmaps-batch',
-    'email-waterfall',
-    'find-contacts',
-    'ai-enrich-contact'
+    'ai-enrich-contact',
+    'validate-leads',
+    // GTM Pipeline
+    'gtm-synthesis',
+    'gtm-doc-render',
+    'gtm-approve',
+    'gtm-campaign-cell-seed',
+    'gtm-campaign-cell-enrich',
+    'gtm-campaign-push',
+    'gtm-aleads-source',
+    'gtm-messaging-doc',
+    'gtm-execution-review-doc',
+    'gtm-research',
+    'gtm-research-poll',
+    'gtm-gate-notify',
+    'gtm-infra-status',
+    // Infra
+    'namecheap-purchase-domain',
+    'namecheap-set-nameservers',
+    // Campaign + Sourcing
+    'emailbison-campaign-create',
+    'emailbison-pusher',
+    'data-sourcing-orchestrator'
   ]
 
   // List of functions that should be ARCHIVED
@@ -52,7 +66,21 @@ export async function verifyFunctions() {
     'lead-router',
     'setup-cron-jobs',
     'webhook-calendar',
-    'webhook-debug'
+    'webhook-debug',
+    // PlusVibe (replaced by EmailBison)
+    'sync-plusvibe-campaigns',
+    'sync-plusvibe-accounts',
+    'sync-plusvibe-leads',
+    'sync-plusvibe-warmup',
+    // Obsolete processing
+    'populate-daily-kpis',
+    'sync-sequences',
+    'verify-deployment',
+    'webhook-receiver',
+    // Moved to Railway batch-worker
+    'email-waterfall',
+    'emailbison-pusher',
+    'data-sourcing-orchestrator'
   ]
 
   // Try to invoke each function to verify it exists

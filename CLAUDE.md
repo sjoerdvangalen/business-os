@@ -246,58 +246,65 @@ Next.js 16 App Router met Server Components + Client Components. Alle pagina's g
 └── _archive/docs/                     # Archived reference docs
 ```
 
-## Edge Functions (35 active, 4 legacy in active dir awaiting archive)
+## Edge Functions (31 active)
 
-### EmailBison Sync (pg_cron)
-- `sync-emailbison-accounts` — Every 15 min — email accounts + warmup scores
-- `sync-emailbison-campaigns` — Every 15 min — campaign stats
-- `sync-emailbison-sequences` — Hourly — sequence steps + KPIs
-- `sync-domains` — Daily — domain health from email accounts
+### Architecture: Thin Wrappers → Railway
 
-### Webhooks
+**Pattern:** Edge Function = thin trigger (auth + validatie) → Railway = heavy work.
+Alle processing edge functions zijn 5-regel wrappers die via `_shared/railway-client.ts` naar Railway doorverwijzen.
+
+**Wat blijft op Edge Functions (nooit naar Railway):**
+- Webhook handlers — externe platforms verwijzen naar Supabase URL
+- Cron/sync jobs — pg_cun roept aan
+- Centrale orchestratie — lightweight state updates + routing
+
+### Webhooks (blijven op Edge Functions)
 - `webhook-emailbison` — Real-time EmailBison events (replies, bounces, sends, inbox status, warmup, DNC)
 - `webhook-meeting` — Multi-provider meeting webhook (Cal.com, Calendly, GHL)
 - `webhook-slack-interaction` — Slack button/modal handler for meeting reviews
 - `webhook-jotform-intake` — Client onboarding intake form
 
-### GTM Pipeline
-- `gtm-research` + `gtm-research-poll` — Exa deep research (async)
-- `gtm-synthesis` — OpenAI o4-mini strategy synthesis (gtm_synthesis_v2 schema) → writes to `gtm_strategies`
-- `gtm-doc-render` — Google Docs render (internal 14-sectie / external) — reads from `gtm_strategies`
-- `gtm-approve` — Manual approval gate (internal/external/messaging/sourcing) — triggers downstream
-- `gtm-campaign-cell-seed` — Skeleton cells from `campaign_matrix_seed` → `campaign_cells` (status=sourcing_pending) — triggered on external_approve (parallel to execution-review-doc)
-- `gtm-execution-review-doc` — Execution Review doc fase 1: keyword profiles + A-Leads squirrel counts + preview URLs per ICP-segment — triggered on external_approve (parallel to cell-seed); fase 2 appended by gtm-messaging-doc
-- `gtm-aleads-source` — A-Leads bulk sourcing per ICP segment: companies via `bulk/company-search` + contacts via `bulk/advanced-search` (person_search, cookie-based auth) — triggered on sourcing_approve (parallel to gtm-messaging-doc)
-- `gtm-messaging-doc` — Per-cell ERIC + HUIDIG messaging (Kimi kimi-k2-5) for all sourcing-approved cells — triggered on sourcing_approve (parallel to gtm-aleads-source)
-- `gtm-campaign-cell-enrich` — Writes approved messaging back to `campaign_cells.brief` (status=ready) — triggered on messaging_approve
-- `gtm-infra-status` — Infra readiness check
+### Cron/Sync (pg_cron — blijven op Edge Functions)
+- `sync-emailbison-accounts` — Every 15 min
+- `sync-emailbison-campaigns` — Every 15 min
+- `sync-emailbison-sequences` — Hourly
+- `sync-domains` — Daily
+- `meeting-review` — */5 min
+- `campaign-monitor` — */15 min
+- `domain-monitor` — Daily 06:00 UTC
+- `daily-digest` — Daily 07:00 CET
+
+### Orchestration (blijven op Edge Functions — lightweight traffic cop)
+- `gtm-approve` — Centrale approval gate. Update `clients.approval_status`, bepaalt volgende stap, trigger Railway endpoints na approval
+- `gtm-gate-notify` — Slack notificatie bij approval gates
+- `gtm-infra-status` — Infra readiness check (G0 gate)
 - `gtm-campaign-push` — EmailBison campaign creation + inbox attachment
-- `gtm-gate-notify` — Slack notification for approval gates
 
-### Processing
-- `meeting-review` — Cron */5 min — Slack Block Kit review after meetings
-- `campaign-monitor` — Health checks every 15 min
-- `domain-monitor` — Deliverability check daily at 06:00 UTC
-- `daily-digest` — Daily summary of all client activity (7:00 CET)
-- `emailbison-campaign-create` — Create campaigns with standard settings + warmed inbox attachment
-- `data-sourcing-orchestrator` — Full sourcing pipeline: source → validate → push
-- `emailbison-pusher` — Push validated contacts to EmailBison campaigns
+### Thin Wrappers → Railway (5-regel wrappers via `callRailway()`)
 
-### Infra
-- `namecheap-purchase-domain` — Domain purchase automation
-- `namecheap-set-nameservers` — Nameserver configuration
+**GTM Pipeline:**
+- `gtm-research` → `POST /gtm/research` — Exa deep research
+- `gtm-research-poll` → `POST /gtm/research/poll` — Poll pending Exa tasks
+- `gtm-synthesis` → `POST /gtm/synthesis` — OpenAI strategy synthesis
+- `gtm-doc-render` → `POST /gtm/doc-render` — Google Docs render
+- `gtm-execution-review-doc` → `POST /gtm/execution-review` — Execution review doc
+- `gtm-campaign-cell-seed` → `POST /gtm/cell-seed` — Skeleton cells
+- `gtm-aleads-source` → `POST /gtm/aleads-source` — A-Leads bulk sourcing
+- `gtm-messaging-doc` → `POST /gtm/messaging-doc` — Per-cell messaging
+- `gtm-campaign-cell-enrich` → `POST /gtm/cell-enrich` — Write messaging to cells
 
-### Lead Generation
-- `email-waterfall` — Multi-step email verification: 90-day cache → DNC L1/L2/L3 → OmniVerifier confirm + catchall detection → TryKitt patterns → Enrow email find fallback
-- `ai-enrich-contact` — AI enrichment for contacts
-- `process-gmaps-batch` — Process Google Maps scraper batches
-- `find-contacts` — Legacy A-Leads contact finder (uses broken v1 REST API). Not used in the automated pipeline; `gtm-aleads-source` handles contact discovery via cookie-based bulk person_search.
-- `validate-leads` — Enrow email validation
+**Data Processing:**
+- `ai-enrich-contact` → `POST /enrich` — AI enrichment
+- `process-gmaps-batch` → `POST /gmaps-batch` — Google Maps batch processing
+- `validate-leads` → `POST /validate` — Email validation
+
+**Utilities:**
+- `emailbison-campaign-create` → `POST /eb/campaign-create` — EmailBison campaign creation
+- `namecheap-purchase-domain` → `POST /namecheap/purchase-domain` — Domain purchase
+- `namecheap-set-nameservers` → `POST /namecheap/set-nameservers` — DNS configuration
 
 ### Archived (in `_archive/`, not deployed)
-sync-plusvibe-campaigns, sync-plusvibe-accounts, sync-plusvibe-warmup, sync-plusvibe-leads, sync-sequences, webhook-receiver, populate-daily-kpis, verify-deployment, gtm-crud-*, analyze-*, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug
-
-**Legacy still in active directory (to be moved to `_archive/`):** `populate-daily-kpis`, `sync-sequences`, `verify-deployment`, `webhook-receiver`
+sync-plusvibe-campaigns, sync-plusvibe-accounts, sync-plusvibe-warmup, sync-plusvibe-leads, sync-sequences, webhook-receiver, populate-daily-kpis, verify-deployment, gtm-crud-*, analyze-*, detect-anomalies, lead-router, aggregate-kpis, setup-cron-jobs, check-functions, webhook-calendar, webhook-debug, find-contacts, email-waterfall, emailbison-pusher, data-sourcing-orchestrator
 
 ---
 
@@ -476,16 +483,16 @@ CTA-lock tijdens H1/F1: alleen `info_send` of `case_study_send` als `cta_variant
 
 ### Lead Generation Pipeline
 ```
-Google Maps Scraper → process-gmaps-batch → companies table
+Google Maps Scraper → process-gmaps-batch (edge → Railway /gmaps-batch) → companies table
 
-A-Leads bulk sourcing (gtm-aleads-source):
+A-Leads bulk sourcing (gtm-aleads-source edge → Railway /gtm/aleads-source):
   bulk/company-search → companies table
   bulk/advanced-search (person_search) → contacts table
 
-Contact enrichment & validation:
+Contact enrichment & validation (Railway batch-worker):
   → email-waterfall (OmniVerifier + TryKitt + Enrow fallback) → verified email + catchall flag
-    → validate-leads (Enrow bulk validation for existing emails) → email_validation_status
-      → ai-enrich-contact (Kimi AI) → personalization data
+    → validate-leads (edge → Railway /validate) → email_validation_status
+      → ai-enrich-contact (edge → Railway /enrich) → personalization data
         → emailbison-pusher (cell-scoped) → EmailBison campaigns
 ```
 
@@ -607,10 +614,40 @@ Research files are stored in `research/CLIENT_CODE-*.md`. Currently only SentioC
 
 ### Railway
 - **Account Token**: `RAILWAY_ACCOUNT_TOKEN` (kan nieuwe services aanmaken)
-- **Project Token**: `RAILWAY_TOKEN` (bestaande services alleen)
-- **Project**: scintillating-energy (`2ad5a85b-9b6f-4044-9cff-ab1eec2cb3bf`)
-- **Environment**: production (`eb353851-1db7-4a6a-8782-227bcbf81568`)
-- **Use case**: Deploy NocoDB, Redis, Postgres, etc.
+- **Project Token**: `RAILWAY_TOKEN` — `c8a8c4a3-9f53-4436-a7dd-9a5ea9f9656a`
+- **Project**: business-os-workers (`c8a8c4a3-9f53-4436-a7dd-9a5ea9f9656a`)
+- **Service**: batch-worker
+- **URL**: `https://batch-worker-production-dab0.up.railway.app`
+- **Use case**: Alle zware processing — email waterfall, pipeline, GTM research/synthesis, A-Leads sourcing, messaging, cell management, campaign create, domain purchase
+- **Deploy**: `cd services/batch-worker && RAILWAY_TOKEN=... railway up --service batch-worker`
+
+**Endpoints:**
+```
+GET  /health
+POST /waterfall              — Batch email verification
+POST /waterfall/webhook      — Supabase DB webhook (new contact without email)
+POST /pipeline               — Full sourcing pipeline: source → validate → push
+POST /push                   — EmailBison push
+POST /enrich                 — AI enrich contact (Kimi)
+POST /gmaps-batch            — Process Google Maps scraper batch
+POST /validate               — Validate leads (Enrow/Omni)
+POST /gtm/research           — Exa deep research
+POST /gtm/research/poll      — Poll pending Exa tasks
+POST /gtm/synthesis          — OpenAI strategy synthesis
+POST /gtm/doc-render         — Google Docs render
+POST /gtm/execution-review   — Execution review doc
+POST /gtm/aleads-source      — A-Leads bulk sourcing
+POST /gtm/messaging-doc      — Per-cell ERIC + HUIDIG messaging
+POST /gtm/cell-seed          — Skeleton cells from matrix
+POST /gtm/cell-enrich        — Write approved messaging to cells
+POST /eb/campaign-create     — EmailBison campaign create + inbox attachment
+POST /namecheap/purchase-domain   — Namecheap domain purchase
+POST /namecheap/set-nameservers   — Namecheap DNS configuration
+```
+
+**Auth**: `x-webhook-secret` header (shared between Edge Functions and Railway)
+
+**Oude project (verwijderd):** scintillating-energy (`2ad5a85b-9b6f-4044-9cff-ab1eec2cb3bf`) — was voor NocoDB
 
 ### Supabase
 - **Project**: `gjhbbyodrbuabfzafzry`
