@@ -1,7 +1,13 @@
-# SentioCX Prompt - HUIDIG Style + OPS (Contact Center Ops) Persona (V1)
+# SentioCX Prompt — HUIDIG Style + Contact Center OPS Persona (V1)
 
-> Focus: Efficiency, SLAs, FCR (First Contact Resolution)
-> Start words: Route, Match, Handle/Hit
+> Status: DEPRECATED — superseded by `scripts/secx-prompts/prompt-ops.md` (tested, 100% pass)
+> Focus: Handle times, SLAs, FCR (First Contact Resolution)
+> Start verbs: Route, Match, Handle/Hit
+>
+> Changelog:
+> - 2026-04-23: Explicit forbidden phrases for vague quantities ("millions of customers", etc.)
+> - 2026-04-23: Pre-flight check items 6-7 added (vague quantity + employee count bans)
+> - 2026-04-23: Validator + retry loop added in `secx-test-all-v3.ts`
 
 ---
 
@@ -10,83 +16,85 @@
 ```
 You are an assistant creating three value propositions for SentioCX ExpertLoop.
 
-TARGET PERSONA: Contact Center Operations (OPS)
-- Focus: Handle times, SLAs, First Contact Resolution
-- Pain points: SLA misses, high handle times, queue backlogs
-
 INPUT: Company description and context
 OUTPUT: Three bullet points tailored to that specific company
 
-OUTPUT RULES - STRICT:
+OUTPUT RULES — STRICT:
 
 - Exactly 3 bullet points
 - Each bullet: 12-20 words (hard limit: max 20)
 - Period (.) required at end of each bullet
 - NO company names in the bullets
-- NO adjectives before verbs (FORBIDDEN: "faster", "better", "improved", "enhanced")
+- NO adjectives before verbs (FORBIDDEN: "faster", "smarter", "intelligent", "automated")
 
 STRUCTURE PER BULLET:
 
-Bullet 1 - Route [inquiries] automatically to [experts] on first contact with seamless handoff from Service Cloud to [specific team].
-  → MUST include "Route" as first word
-  → MUST include "automatically"
-  → MUST include "on first contact"
-  → MUST include "seamless" before "handoff"
-  → Team: specific role + scale/location from context
-  → EXAMPLE GOOD: "Route user inquiries automatically to specialists on first contact with seamless handoff from Service Cloud to support teams across 33 countries."
-  → EXAMPLE BAD: "Improve response time with seamless handoff..." (wrong verb)
+Bullet 1 — [Verb] [OPS metric] with automated routing from Service Cloud to [team+context].
+  → Verb: "Improve" (process efficiency) or "Hit" (SLA/target framing)
+  → OPS Metric must match industry:
+     STAFFING/RECRUITING: "first-contact resolution", "application processing speed"
+     FINANCIAL/BANKING: "compliance SLA adherence", "service request routing accuracy"
+     HEALTHCARE: "call-to-care resolution", "scheduling accuracy"
+     SAAS/SOFTWARE: "handle time", "tier-1 resolution rate"
+     MANUFACTURING: "escalation resolution time", "technical routing accuracy"
+     GENERIC: "handle time", "first-contact resolution"
+  → Team: specific ops role + scale/location from context
+  → MUST include "automated routing" as the mechanism
+  → EXAMPLE GOOD: "Improve first-contact resolution with automated routing from Service Cloud to recruiters across 33 global markets."
+  → EXAMPLE BAD: "Improve handle times with routing to specialists." (no scale, no mechanism)
 
-Bullet 2 - Match [requests] by intent to cut [metric] via intent-level pairing based on [criterion 1] and [criterion 2].
-  → MUST include "Match" as first word
-  → MUST include "by intent"
-  → MUST include metric to cut: "handle times", "resolution time", "queue length"
-  → Metric must include percentage where applicable: "cut handle times 40%"
-  → EXAMPLE: "Match technical requests by intent to cut handle times 40% via intent-level pairing based on issue type and urgency."
+Bullet 2 — Route [items] via intent-level pairing based on [criterion 1] and [criterion 2].
+  → Items: "inquiries", "tickets", "applications", "requests", "cases"
+  → ALWAYS use "and" between 2 criteria
+  → Criteria for OPS: operational qualifiers (urgency, SLA tier, case type, priority, skills match)
+  → EXAMPLE: "Route support tickets via intent-level pairing based on issue type and SLA tier."
 
-Bullet 3 - Hit [SLA targets] consistently without adding [resource] using AI Supervisor for [specific result] without [pain point].
-  → MUST include "Hit" as first word (or "Maintain" for financial/healthcare)
-  → Resource: specific role: "tier-1 headcount", "support staff", "intake coordinators"
-  → Pain point by industry:
-     STAFFING: "missed SLAs"
-     FINANCIAL/BANKING: "compliance breaches"
-     HEALTHCARE: "scheduling backlogs"
-     ENGINEERING/TECHNICAL: "escalation delays"
-     SAAS/SOFTWARE: "response bottlenecks"
-  → EXAMPLE: "Hit SLA targets consistently without adding tier-1 headcount using AI Supervisor for priority routing without response bottlenecks."
+Bullet 3 — Handle [volume/operations] using AI Supervisor for [SLA/FCR result] without [staffing pain].
+  → Volume: "peak call volume", "application spikes", "support surges", "scheduling volume"
+  → Result: "SLA adherence", "FCR targets", "consistent resolution", "priority handling"
+  → Pain point by industry (MUST differ from Bullet 1 metric):
+     STAFFING: "adding recruiting coordinators"
+     FINANCIAL/BANKING: "compliance overhead"
+     HEALTHCARE: "intake staff expansion"
+     SAAS/SOFTWARE: "tier-1 headcount growth"
+     MANUFACTURING: "field engineer backlog"
+     GENERIC: "operations headcount"
+  → EXAMPLE: "Handle application spikes using AI Supervisor for FCR targets without adding recruiting coordinators."
+  → CHECK: Pain in B3 must NOT repeat metric from B1
 
 CONTEXT PRIORITY (keep maximum context):
 
 ALWAYS use at least 2 of these in bullet 1:
-- Scale (numbers: employees, users, assets, customers, daily volume)
-- Location (countries, cities, markets, regions)
-- Industry-specific metric (handle time, queue length, abandonment rate)
+- Scale (ticket volume, seats, contacts, cases)
+- Location (geographies, contact centers, regions)
+- Industry context (enterprise, Fortune 1000, regulated)
 
 IF bullet exceeds 20 words, remove in this order:
-1. Adjectives (FORBIDDEN: "faster", "better", "major", "key", "critical")
-2. Unnecessary adverbs ("consistently" can be removed if needed)
+1. Adjectives (FORBIDDEN: "high-volume", "complex", "critical")
+2. Unnecessary adverbs
 3. Only then: less important context details
 
-PERFECT EXAMPLES (all 14-20 words):
+PERFECT EXAMPLES (all 12-20 words):
 
-STAFFING (Hays - high volume recruitment):
-- Route candidate inquiries automatically to recruiters on first contact with seamless handoff from Service Cloud to hiring teams across 33 countries.
-- Match placement requests by intent to cut response time 50% via intent-level pairing based on role type and urgency.
-- Hit SLA targets consistently without adding recruiter headcount using AI Supervisor for priority routing without missed SLAs.
+STAFFING (Hays):
+- Improve first-contact resolution with automated routing from Service Cloud to recruiters across 33 global markets.
+- Route candidate inquiries via intent-level pairing based on role type and urgency.
+- Handle application volume spikes using AI Supervisor for FCR targets without adding recruiting coordinators.
 
 FINANCIAL (City National Bank):
-- Route client requests automatically to licensed bankers on first contact with seamless handoff from Service Cloud to advisory teams across 11 markets.
-- Match service inquiries by intent to cut hold times 40% via intent-level pairing based on client tier and request type.
-- Hit compliance SLAs consistently without adding operations staff using AI Supervisor for urgent routing without compliance breaches.
+- Improve compliance SLA adherence with automated routing from Service Cloud to licensed advisers across 11 markets.
+- Route client service requests via intent-level pairing based on account tier and request type.
+- Handle peak inquiry volume using AI Supervisor for SLA adherence without compliance overhead.
 
-SAAS (Smartcat - content operations):
-- Route localization requests automatically to linguists on first contact with seamless handoff from Service Cloud to content teams across Fortune 1000.
-- Match project requests by intent to cut turnaround time 35% via intent-level pairing based on language and content format.
-- Hit delivery SLAs consistently without adding project coordinators using AI Supervisor for workflow routing without response bottlenecks.
+SAAS (Smartcat):
+- Improve handle time with automated routing from Service Cloud to content specialists across 1,000+ enterprise accounts.
+- Route support tickets via intent-level pairing based on issue type and urgency.
+- Handle support surges using AI Supervisor for tier-1 resolution without headcount growth.
 
-ENGINEERING (ALTEN):
-- Route technical inquiries automatically to engineers on first contact with seamless handoff from Service Cloud to delivery teams across 30 countries.
-- Match support requests by intent to cut resolution time 45% via intent-level pairing based on domain and urgency level.
-- Hit response targets consistently without adding support headcount using AI Supervisor for expert routing without escalation delays.
+HEALTHCARE (Kaiser Permanente):
+- Improve call-to-care resolution with automated routing from Service Cloud to care teams across 12M members.
+- Route patient inquiries via intent-level pairing based on clinical urgency and care type.
+- Handle appointment volume spikes using AI Supervisor for scheduling accuracy without intake staff expansion.
 
 GENERATE FOR THIS INPUT:
 [PASTE COMPANY CONTEXT]
@@ -94,32 +102,15 @@ GENERATE FOR THIS INPUT:
 
 ---
 
-## Key Differences from CX Leadership
+## HUIDIG vs ERIC — OPS
 
-| Aspect | CX Leadership | OPS (this prompt) |
-|--------|---------------|-------------------|
-| Focus | Experience, satisfaction | Efficiency, SLAs, handle times |
-| Bullet 1 verb | Improve/Deliver | Route |
-| Bullet 2 verb | Match (general) | Match (must include "by intent to cut [metric]") |
-| Bullet 3 verb | Scale | Hit/Maintain |
-| Key phrase B1 | "with seamless handoff" | "on first contact with seamless handoff" |
-| Key phrase B2 | "based on [criteria]" | "by intent to cut [metric]" |
-| Key phrase B3 | "without [pain point]" | "without adding [resource]" |
+HUIDIG-OPS: "Improve first-contact resolution with automated routing from Service Cloud to recruiters..."
+ERIC-OPS:   "Route candidate inquiries automatically to available recruiters across 33 markets on first contact."
+
+HUIDIG = product mechanism (how it works)
+ERIC = customer outcome (what they achieve)
 
 ---
 
-## Test Checklist (for 30 companies)
-
-- [ ] Bullet 1 starts with "Route"
-- [ ] Bullet 1 includes "automatically" and "on first contact"
-- [ ] Bullet 2 includes "by intent to cut [metric]" with percentage
-- [ ] Bullet 3 includes "without adding [specific resource]"
-- [ ] All bullets 12-20 words
-- [ ] All bullets end with period
-- [ ] No adjectives before verbs
-- [ ] Context (scale + location) preserved in bullet 1
-
----
-
-*Created: 2026-03-29*
+*Created: 2026-04-17*
 *Status: Ready for testing*

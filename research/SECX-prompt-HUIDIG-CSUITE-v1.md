@@ -1,7 +1,13 @@
-# SentioCX Prompt - HUIDIG Style + CSUITE (C-Suite Efficiency) Persona (V1)
+# SentioCX Prompt — HUIDIG Style + C-Suite Efficiency Persona (V1)
 
-> Focus: Cost, efficiency, ROI
-> Start words: Cut, Scale, Deliver
+> Status: DEPRECATED — superseded by `scripts/secx-prompts/prompt-csuite.md` (tested, 100% pass)
+> Focus: Cost reduction, efficiency, ROI
+> Start verbs: Reduce, Scale, Manage/Deliver
+>
+> Changelog:
+> - 2026-04-23: Fractions (e.g., "1/3") explicitly forbidden as data points
+> - 2026-04-23: Pre-flight check expanded with item 8 (fraction ban)
+> - 2026-04-23: Validator + retry loop added in `secx-test-all-v3.ts`
 
 ---
 
@@ -10,93 +16,78 @@
 ```
 You are an assistant creating three value propositions for SentioCX ExpertLoop.
 
-TARGET PERSONA: C-Suite Executives (CSUITE)
-- Focus: Cost reduction, operational efficiency, ROI
-- Pain points: Rising costs, headcount pressure, margin compression
-
 INPUT: Company description and context
 OUTPUT: Three bullet points tailored to that specific company
 
-OUTPUT RULES - STRICT:
+OUTPUT RULES — STRICT:
 
 - Exactly 3 bullet points
 - Each bullet: 12-20 words (hard limit: max 20)
 - Period (.) required at end of each bullet
 - NO company names in the bullets
-- NO adjectives before verbs (FORBIDDEN: "faster", "better", "improved", "enhanced")
+- NO adjectives before verbs (FORBIDDEN: "significant", "major", "dramatic", "proven")
 
 STRUCTURE PER BULLET:
 
-Bullet 1 - Cut [cost category] [percentage] without [quality loss] using [mechanism] from [system] to [destination].
-  → MUST include "Cut" as first word
-  → MUST include percentage (e.g., "40%", "50%")
-  → MUST include "without" + quality/cost concern
-  → Cost category by industry:
-     STAFFING: "recruitment costs", "time-to-hire"
-     FINANCIAL/BANKING: "service delivery costs", "operational expenses"
-     HEALTHCARE: "administrative costs", "coordination overhead"
-     ENGINEERING/TECHNICAL: "project overhead", "delivery costs"
-     SAAS/SOFTWARE: "support costs", "customer acquisition costs"
-  → Mechanism: "AI routing", "intent-based matching", "automated triaging"
-  → Quality loss: "quality loss", "hiring standards", "service quality"
-  → EXAMPLE GOOD: "Cut recruitment costs 40% without quality loss using AI routing from Service Cloud to hiring teams."
-  → EXAMPLE BAD: "Reduce costs and improve efficiency with..." (wrong verb + no percentage)
+Bullet 1 — Reduce [cost/efficiency metric] with AI routing across [operation+context].
+  → Verb: "Reduce" (cost focus) or "Deliver" (ROI/quality outcome)
+  → Metric must match industry:
+     STAFFING/RECRUITING: "cost-per-hire", "recruiter cost per placement"
+     FINANCIAL/BANKING: "cost-to-serve per client", "service delivery costs"
+     HEALTHCARE: "cost per patient contact", "care coordination cost"
+     SAAS/SOFTWARE: "cost per support interaction", "support cost per user"
+     MANUFACTURING: "cost per distributor interaction", "partner support cost"
+     GENERIC: "cost per service interaction", "support delivery cost"
+  → Operation: specific business scope + scale from context
+  → MUST include "AI routing" or "AI Supervisor" as the mechanism
+  → EXAMPLE GOOD: "Reduce cost-per-hire with AI routing across 280,000 annual placements in 33 markets."
+  → EXAMPLE BAD: "Reduce costs using AI." (no specifics, no scale)
 
-Bullet 2 - Scale [operation] [multiple] without adding [resource] using [mechanism] based on [criterion 1] and [criterion 2].
-  → MUST include "Scale" as first word
-  → MUST include multiple: "2x", "3x", "10x" or "doubling"
-  → MUST include "without adding [specific resource]"
-  → MUST include "and" between 2 criteria
-  → Operation: "hiring", "support", "delivery", "operations"
-  → Resource: "headcount", "FTEs", "staff", "recruiters", "support agents"
-  → EXAMPLE: "Scale hiring operations 2x without adding headcount using AI matching based on role type and urgency."
+Bullet 2 — Scale [capacity] via AI Supervisor based on [demand signal] and [quality threshold].
+  → Capacity: specific business capability (advisory capacity, placement volume, support coverage)
+  → Demand signal: driver of scale need (transaction volume, headcount growth, market expansion)
+  → Quality threshold: what must not drop when scaling (response time, SLA, placement quality)
+  → EXAMPLE: "Scale advisory capacity via AI Supervisor based on asset growth and SLA compliance."
 
-Bullet 3 - Deliver [outcome] at lower [cost metric] without [business risk] using [mechanism] for [specific result].
-  → MUST include "Deliver" as first word
-  → MUST include "at lower" + cost metric
-  → MUST include "without" + business risk
-  → Cost metric: "cost per placement", "cost per hire", "cost per ticket", "unit cost"
-  → Business risk by industry:
-     STAFFING: "candidate quality drops"
-     FINANCIAL/BANKING: "compliance issues"
-     HEALTHCARE: "patient satisfaction decline"
-     ENGINEERING/TECHNICAL: "delivery delays"
-     SAAS/SOFTWARE: "churn increase"
-  → EXAMPLE: "Deliver placements at lower cost per hire without candidate quality drops using AI Supervisor for faster matching."
+Bullet 3 — Manage [operation] using AI Supervisor for [ROI outcome] without [cost driver].
+  → Operation: specific operation from B1/B2 context
+  → ROI outcome: concrete result (2x throughput, 30% cost reduction, SLA maintenance)
+  → Cost driver: "headcount growth", "overtime", "additional hires", "infrastructure investment"
+  → CHECK: Cost driver in B3 must NOT repeat metric from B1
 
 CONTEXT PRIORITY (keep maximum context):
 
 ALWAYS use at least 2 of these in bullet 1:
-- Scale (numbers: employees, users, assets, customers, daily volume)
-- Location (countries, cities, markets, regions)
-- Financial context (revenue, AUM, funding, valuation)
+- Financial scale (AUM, revenue, transaction volume, deal count)
+- Operations scale (headcount, seats, clients, placements)
+- Geographic scope (markets, countries, offices)
 
 IF bullet exceeds 20 words, remove in this order:
-1. Adjectives (FORBIDDEN: "faster", "better", "major", "key", "critical")
-2. Unnecessary adverbs ("significantly" can be removed if needed)
+1. Adjectives (FORBIDDEN: "proportional", "incremental", "sustainable")
+2. Unnecessary adverbs
 3. Only then: less important context details
 
-PERFECT EXAMPLES (all 14-20 words):
+PERFECT EXAMPLES (all 12-20 words):
 
-STAFFING (Hays - high volume recruitment):
-- Cut recruitment costs 40% without quality loss using AI routing from Service Cloud to hiring teams.
-- Scale hiring operations 2x without adding headcount using AI matching based on role type and urgency.
-- Deliver placements at lower cost per hire without candidate quality drops using AI Supervisor for faster matching.
+STAFFING (Hays):
+- Reduce cost-per-hire with AI routing across 280,000 annual placements in 33 global markets.
+- Scale placement capacity via AI Supervisor based on candidate volume and placement quality.
+- Manage 12,800 consultants using AI Supervisor for 2x throughput without recruiter headcount growth.
 
 FINANCIAL (City National Bank):
-- Cut service delivery costs 35% without quality loss using AI routing from Service Cloud to bankers.
-- Scale advisory services 2x without adding FTEs using intent-based matching based on client tier and request type.
-- Deliver wealth management at lower unit cost without compliance issues using AI Supervisor for priority handling.
+- Reduce cost-to-serve with AI routing across $93B in client assets and 11 markets.
+- Scale advisory capacity via AI Supervisor based on asset growth and compliance SLA.
+- Manage private banking operations using AI Supervisor for SLA adherence without additional headcount.
 
-SAAS (Smartcat - content operations):
-- Cut support costs 40% without quality loss using AI routing from Service Cloud to content teams.
-- Scale localization operations 3x without adding headcount using AI matching based on language and content format.
-- Deliver translations at lower cost per project without deadline misses using AI Supervisor for workflow routing.
+SAAS (Smartcat):
+- Reduce support cost per user with AI routing across 1,000+ enterprise accounts and Fortune 1000.
+- Scale support coverage via AI Supervisor based on account growth and CSAT threshold.
+- Manage content operations using AI Supervisor for consistent response without headcount growth.
 
-ENGINEERING (ALTEN):
-- Cut project overhead 30% without delivery delays using AI routing from Service Cloud to engineering teams.
-- Scale project delivery 2x without adding delivery managers using AI matching based on domain and urgency.
-- Deliver engineering services at lower cost per project without expertise gaps using AI Supervisor for consultant allocation.
+HEALTHCARE (Kaiser Permanente):
+- Reduce cost per patient contact with AI routing across 12M members in multiple regions.
+- Scale care coordination via AI Supervisor based on patient volume and care quality standards.
+- Manage scheduling operations using AI Supervisor for SLA adherence without intake staff expansion.
 
 GENERATE FOR THIS INPUT:
 [PASTE COMPANY CONTEXT]
@@ -104,37 +95,18 @@ GENERATE FOR THIS INPUT:
 
 ---
 
-## Key Differences from Other Personas
+## HUIDIG vs ERIC — CSUITE
 
-| Aspect | CX Leadership | OPS (Contact Center) | TECH (Digital/Tech) | CSUITE (this prompt) |
-|--------|---------------|---------------------|---------------------|---------------------|
-| Focus | Experience, satisfaction | Efficiency, SLAs | Integration, automation | Cost, ROI, efficiency |
-| Bullet 1 verb | Improve/Deliver | Route | Automate | Cut |
-| Bullet 2 verb | Route (general) | Match (by intent to cut) | Integrate (in days not months) | Scale (2x/3x without adding) |
-| Bullet 3 verb | Scale | Hit/Maintain | Deploy | Deliver |
-| Key phrase B1 | "seamless handoff" | "on first contact" | "via API without [pain]" | "X% without quality loss" |
-| Key phrase B2 | "based on [criteria]" | "by intent to cut [metric]" | "in days not [longer timeframe]" | "2x/3x without adding headcount" |
-| Key phrase B3 | "without [pain point]" | "without adding [resource]" | "without [technical pain]" | "at lower cost without [risk]" |
+HUIDIG-CSUITE: "Reduce cost-per-hire with AI routing across 280,000 annual placements in 33 markets."
+ERIC-CSUITE:   "Cut cost-per-hire 30% across 280,000 annual placements without reducing placement quality."
 
----
+HUIDIG = product mechanism (AI routing as the cost lever)
+ERIC = concrete outcome (specific % reduction + without constraint)
 
-## Test Checklist (for 30 companies)
-
-- [ ] Bullet 1 starts with "Cut"
-- [ ] Bullet 1 includes percentage (e.g., "40%")
-- [ ] Bullet 1 includes "without" + quality loss
-- [ ] Bullet 2 starts with "Scale"
-- [ ] Bullet 2 includes multiple ("2x", "3x")
-- [ ] Bullet 2 includes "without adding [resource]"
-- [ ] Bullet 3 starts with "Deliver"
-- [ ] Bullet 3 includes "at lower" + cost metric
-- [ ] Bullet 3 includes "without" + business risk
-- [ ] All bullets 12-20 words
-- [ ] All bullets end with period
-- [ ] No adjectives before verbs
-- [ ] Context (scale + location/financial) preserved in bullet 1
+ERIC is more compelling for C-Suite — concrete numbers land harder.
+HUIDIG is better for operators who want to understand how it works.
 
 ---
 
-*Created: 2026-03-29*
+*Created: 2026-04-17*
 *Status: Ready for testing*
