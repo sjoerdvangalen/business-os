@@ -237,7 +237,7 @@ async function generateBulletsWithValidation(
   }
 
   // Retry with feedback (max 1 validation retry)
-  const feedback = buildRetryFeedback(v1, rec.persona);
+  const feedback = buildRetryFeedback(v1, rec.persona, first.bullets || undefined);
   const second = await generateBullets(client, rec, feedback);
   if (second.usage) {
     totalUsage = {
@@ -333,7 +333,7 @@ async function main() {
   // Build one combined queue with all persona records (no longer sequential per persona)
   const allTestRecords: Record[] = [];
   for (const persona of testPersonas) {
-    const personaRecords = records.filter((r) => r.persona === persona).slice(0, 200);
+    const personaRecords = records.filter((r) => r.persona === persona);
     allTestRecords.push(...personaRecords);
   }
   console.log(`[INFO] Total test batch: ${allTestRecords.length} records across all personas`);

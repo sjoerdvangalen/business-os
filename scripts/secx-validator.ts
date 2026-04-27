@@ -19,6 +19,8 @@ const VAGUE_PATTERNS = [
 
 const FORBIDDEN_ID_PATTERNS = [/NMLS ID \d+/, /ISO \d+/, /FDA/];
 
+const MARKETING_WORDS = ["trusted", "innovative", "world-class", "best-in-class", "leading provider", "million employees", "millions of employees"];
+
 const FORBIDDEN_PHRASES: Record<string, string[]> = {
   ops: ["millions of customers", "millions of consumers", "millions of developers", "millions of people", "millions of users"],
   cx: [],
@@ -47,7 +49,7 @@ export function validateBullets(
   // Word count per bullet
   for (let i = 0; i < 3; i++) {
     const words = bullets[i].split(/\s+/).filter(w => w.length > 0).length;
-    if (words < 12) errors.push(`B${i+1} too short: ${words} words (min 12)`);
+    if (words < 10) errors.push(`B${i+1} too short: ${words} words (min 10)`);
     if (words > 20) errors.push(`B${i+1} too long: ${words} words (max 20)`);
   }
 
@@ -56,19 +58,29 @@ export function validateBullets(
     errors.push("Company name appears in bullet");
   }
 
+  // Marketing language check (all personas)
+  for (const mw of MARKETING_WORDS) {
+    if (b1.toLowerCase().includes(mw)) errors.push(`B1 contains marketing language: "${mw}"`);
+    if (b2.toLowerCase().includes(mw)) errors.push(`B2 contains marketing language: "${mw}"`);
+    if (b3.toLowerCase().includes(mw)) errors.push(`B3 contains marketing language: "${mw}"`);
+  }
+
   // --- PERSONA-SPECIFIC CHECKS ---
 
   if (persona === "ops") {
-    // B1 must start with "Send"
-    if (!b1.startsWith("Send ")) errors.push("B1 must start with 'Send'");
-
-    // B1 must end with "without manual triage."
-    if (!b1.endsWith("without manual triage.")) {
-      errors.push("B1 must end with 'without manual triage.'");
+    // B1 must start with "Apply" or "Use"
+    if (!b1.startsWith("Apply ") && !b1.startsWith("Use ")) {
+      errors.push("B1 must start with 'Apply' or 'Use'");
     }
+
+    // B1 must contain "automated routing"
+    if (!b1.includes("automated routing")) errors.push("B1 missing 'automated routing'");
 
     // B1 must contain "dedicated"
     if (!b1.includes("dedicated ")) errors.push("B1 missing 'dedicated'");
+
+    // B2 must start with "Route"
+    if (!b2.startsWith("Route ")) errors.push("B2 must start with 'Route'");
 
     // B2 must have exactly ONE "and"
     const b2Ands = (b2.match(/\band\b/g) || []).length;
@@ -103,17 +115,25 @@ export function validateBullets(
       if (b1.includes(fp)) errors.push(`B1 contains forbidden phrase: "${fp}"`);
     }
 
-    // Employee count in B1
+    // Employee count in B1 (including disguised forms)
     if (/\d+\+? employees/.test(b1)) errors.push("B1 contains raw employee count");
     if (/\d+\+? people/.test(b1)) errors.push("B1 contains 'people' (employee count)");
+    if (/\d+\+? workforce/.test(b1)) errors.push("B1 contains 'workforce' with number (employee count disguised)");
+    // Only catch employee count ranges disguised as other metrics (200, 500, 1000, 5000)
+    if (/\b(200|500|1,000|1000|5,000|5000)\+?\s+(developers|users|markets|accounts|candidates)\b/.test(b1)) errors.push("B1 contains employee count disguised as another metric");
+    // Compound disguise: number + workforce + scope word (e.g., "200+ workforce markets")
+    if (/\d+\+? workforce \w+/.test(b1)) errors.push("B1 contains compound employee count disguise (workforce + scope word)");
   }
 
   if (persona === "cx") {
-    // B1 must start with "Connect"
-    if (!b1.startsWith("Connect ")) errors.push("B1 must start with 'Connect'");
+    // B1 must start with "Route"
+    if (!b1.startsWith("Route ")) errors.push("B1 must start with 'Route'");
 
     // B1 must contain "without any"
     if (!b1.includes("without any ")) errors.push("B1 missing 'without any [friction]'");
+
+    // B2 must start with "Apply"
+    if (!b2.startsWith("Apply ")) errors.push("B2 must start with 'Apply'");
 
     // B2 exactly one "and"
     const b2Ands = (b2.match(/\band\b/g) || []).length;
@@ -135,9 +155,10 @@ export function validateBullets(
   }
 
   if (persona === "tech") {
-    // B1 must contain "via API-first intent routing"
-    if (!b1.includes("via API-first intent routing")) {
-      errors.push("B1 missing 'via API-first intent routing'");
+    // B1 must start with "Use" and contain "API-first intent routing"
+    if (!b1.startsWith("Use ")) errors.push("B1 must start with 'Use'");
+    if (!b1.includes("API-first intent routing")) {
+      errors.push("B1 missing 'API-first intent routing'");
     }
 
     // B1 must NOT have data point (employee count or vague)
@@ -146,16 +167,33 @@ export function validateBullets(
       if (b1.toLowerCase().includes(vp)) errors.push(`B1 contains vague quantity: "${vp}"`);
     }
 
-    // B2/B3 no "and" or "or"
-    if (b2.includes(" and ") || b2.includes(" or ")) {
-      errors.push("B2 contains 'and' or 'or' (must have exactly one constraint)");
-    }
+    // B2 must start with "Apply"
+    if (!b2.startsWith("Apply ")) errors.push("B2 must start with 'Apply'");
+
+    // B2: exactly ONE "and" (between "intent" and "urgency"), no "or"
+    const b2Ands = (b2.match(/\band\b/g) || []).length;
+    if (b2Ands !== 1) errors.push(`B2 has ${b2Ands} 'and' (need exactly 1, between 'intent' and 'urgency')`);
+    if (b2.includes(" or ")) errors.push("B2 contains 'or'");
+
+    // B3 must start with "Deploy"
+    if (!b3.startsWith("Deploy ")) errors.push("B3 must start with 'Deploy'");
+
+    // B3: no "and" or "or"
     if (b3.includes(" and ") || b3.includes(" or ")) {
       errors.push("B3 contains 'and' or 'or' (must have exactly one outcome)");
     }
   }
 
   if (persona === "csuite") {
+    // B1 must start with "Cut"
+    if (!b1.startsWith("Cut ")) errors.push("B1 must start with 'Cut'");
+
+    // B2 must start with "Scale"
+    if (!b2.startsWith("Scale ")) errors.push("B2 must start with 'Scale'");
+
+    // B3 must start with "Deliver"
+    if (!b3.startsWith("Deliver ")) errors.push("B3 must start with 'Deliver'");
+
     // B1 must follow: "...workforce [data_point] without [degradation]"
     const workforceIdx = b1.indexOf("workforce");
     const withoutIdx = b1.indexOf("without ");
@@ -163,9 +201,12 @@ export function validateBullets(
     if (withoutIdx === -1) errors.push("B1 missing 'without [degradation]'");
     if (workforceIdx > withoutIdx) errors.push("B1 wrong order: 'workforce' must come BEFORE 'without'");
 
-    // B2 must NOT have data point
+    // B2 must NOT have data point or combined scopes
     if (/\band \d+/.test(b2) || /serving \d+/.test(b2)) {
       warnings.push("B2 may contain unexpected data point");
+    }
+    if (b2.includes(" / ")) {
+      errors.push("B2 combines two scopes with '/' — pick exactly ONE scope");
     }
 
     // B1 forbidden phrases
@@ -201,7 +242,8 @@ export function validateBullets(
 
 export function buildRetryFeedback(
   result: ValidationResult,
-  persona: string
+  persona: string,
+  bullets?: string[]
 ): string {
   const lines: string[] = [
     `Previous attempt scored ${result.score}/100. Issues found:`,
@@ -210,6 +252,30 @@ export function buildRetryFeedback(
   if (result.warnings.length > 0) {
     lines.push("Warnings:");
     lines.push(...result.warnings.map((w) => `- ${w}`));
+  }
+  if (bullets && bullets.length === 3) {
+    lines.push("");
+    lines.push("Previous bullets (for reference — DO NOT reuse verbatim):");
+    lines.push(`B1: ${bullets[0]}`);
+    lines.push(`B2: ${bullets[1]}`);
+    lines.push(`B3: ${bullets[2]}`);
+  }
+  lines.push("");
+  lines.push("INSTRUCTIONS FOR FIX:");
+  for (const err of result.errors) {
+    if (err.includes("vague quantity")) {
+      lines.push("- REMOVE the vague quantity phrase entirely. Use the bare baseline without any data_point in B1.");
+    } else if (err.includes("employee count") || err.includes("workforce")) {
+      lines.push("- REMOVE the employee count from B1. Employee count goes ONLY in B3 after '...workforce'. Use bare baseline for B1.");
+    } else if (err.includes("missing 'automated routing'")) {
+      lines.push("- ADD 'automated routing' to B1.");
+    } else if (err.includes("dedicated")) {
+      lines.push("- ADD 'dedicated' before the specialist role in B1.");
+    } else if (err.includes("too short")) {
+      lines.push("- ADD missing mandatory phrases to reach minimum word count.");
+    } else if (err.includes("too long")) {
+      lines.push("- REMOVE the data_point from the bullet that is too long.");
+    }
   }
   lines.push("Fix ALL issues and regenerate the bullets.");
   return lines.join("\n");
