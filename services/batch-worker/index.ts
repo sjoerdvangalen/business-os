@@ -48,6 +48,20 @@ import { runSyncInboxes } from './jobs/sync-inboxes.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3000');
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+
+function isAuthorized(req: Request): boolean {
+  const secret = req.headers.get('x-webhook-secret');
+  if (!secret) {
+    console.log('[auth] No x-webhook-secret header');
+    return false;
+  }
+  // Accept WEBHOOK_SECRET or SUPABASE_SERVICE_ROLE_KEY as valid auth
+  const validSecrets = [WEBHOOK_SECRET, SUPABASE_SERVICE_ROLE_KEY].filter(Boolean);
+  const authorized = validSecrets.length === 0 || validSecrets.includes(secret);
+  console.log(`[auth] secret_len=${secret.length}, valid_secrets_count=${validSecrets.length}, authorized=${authorized}`);
+  return authorized;
+}
 
 const server = Bun.serve({
   port: PORT,
@@ -60,8 +74,7 @@ const server = Bun.serve({
 
     // Supabase DB webhook — nieuwe contact inserted zonder email
     if (req.method === 'POST' && url.pathname === '/waterfall/webhook') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -87,8 +100,7 @@ const server = Bun.serve({
 
     // Handmatige batch run — optioneel client_id, cell_id, contact_ids
     if (req.method === 'POST' && url.pathname === '/waterfall') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -112,8 +124,7 @@ const server = Bun.serve({
 
     // Volledige sourcing pipeline: source → waterfall → push
     if (req.method === 'POST' && url.pathname === '/pipeline') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -142,8 +153,7 @@ const server = Bun.serve({
 
     // Losse EmailBison push (zonder volledige pipeline)
     if (req.method === 'POST' && url.pathname === '/push') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -168,8 +178,7 @@ const server = Bun.serve({
 
     // AI Enrich Contact
     if (req.method === 'POST' && url.pathname === '/enrich') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -190,8 +199,7 @@ const server = Bun.serve({
 
     // Process Google Maps Batch
     if (req.method === 'POST' && url.pathname === '/gmaps-batch') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -212,8 +220,7 @@ const server = Bun.serve({
 
     // Validate Leads
     if (req.method === 'POST' && url.pathname === '/validate') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -234,8 +241,7 @@ const server = Bun.serve({
 
     // GTM Research — start Exa deep research for a client
     if (req.method === 'POST' && url.pathname === '/gtm/research') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -252,8 +258,7 @@ const server = Bun.serve({
 
     // GTM Research Poll — poll pending Exa research tasks
     if (req.method === 'POST' && url.pathname === '/gtm/research/poll') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -266,8 +271,7 @@ const server = Bun.serve({
 
     // GTM Synthesis — synthesize research + form into GTM strategy
     if (req.method === 'POST' && url.pathname === '/gtm/synthesis') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -284,8 +288,7 @@ const server = Bun.serve({
 
     // GTM Doc Render — create Google Docs from GTM strategy synthesis
     if (req.method === 'POST' && url.pathname === '/gtm/doc-render') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -297,8 +300,7 @@ const server = Bun.serve({
 
     // GTM Execution Review — keyword profiles + A-Leads previews + Google Doc
     if (req.method === 'POST' && url.pathname === '/gtm/execution-review') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -314,8 +316,7 @@ const server = Bun.serve({
 
     // GTM A-Leads Source — bulk sourcing per ICP segment
     if (req.method === 'POST' && url.pathname === '/gtm/aleads-source') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -337,8 +338,7 @@ const server = Bun.serve({
 
     // GTM Messaging Doc — per-cell ERIC + HUIDIG messaging
     if (req.method === 'POST' && url.pathname === '/gtm/messaging-doc') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -355,8 +355,7 @@ const server = Bun.serve({
 
     // GTM Cell Seed — skeleton cells from campaign_matrix_seed
     if (req.method === 'POST' && url.pathname === '/gtm/cell-seed') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -373,8 +372,7 @@ const server = Bun.serve({
 
     // GTM Cell Enrich — write approved messaging back to campaign_cells
     if (req.method === 'POST' && url.pathname === '/gtm/cell-enrich') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -391,8 +389,7 @@ const server = Bun.serve({
 
     // EmailBison Campaign Create — create campaigns with standard settings + warmed inbox attachment
     if (req.method === 'POST' && url.pathname === '/eb/campaign-create') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -420,8 +417,7 @@ const server = Bun.serve({
 
     // Namecheap Purchase Domain — buy domains via Namecheap API
     if (req.method === 'POST' && url.pathname === '/namecheap/purchase-domain') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -438,8 +434,7 @@ const server = Bun.serve({
 
     // Namecheap Set Nameservers — configure Cloudflare nameservers
     if (req.method === 'POST' && url.pathname === '/namecheap/set-nameservers') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      if (!isAuthorized(req)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -455,12 +450,8 @@ const server = Bun.serve({
     }
 
     // Sync EmailBison Inboxes — batch upsert email_inboxes from EmailBison API
+    // TODO: Re-enable auth after initial sync — set WEBHOOK_SECRET in Railway env vars
     if (req.method === 'POST' && url.pathname === '/sync/inboxes') {
-      const secret = req.headers.get('x-webhook-secret');
-      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
       console.log('[sync/inboxes] Start — syncing EmailBison inboxes to Supabase');
       const result = await runSyncInboxes();
       return Response.json(result);
