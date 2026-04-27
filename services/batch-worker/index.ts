@@ -22,6 +22,7 @@
  *   POST /eb/campaign-create     — EmailBison campaign create + inbox attachment
  *   POST /namecheap/purchase-domain    — Namecheap domain purchase
  *   POST /namecheap/set-nameservers    — Namecheap nameserver configuration
+ *   POST /sync/inboxes           — Sync EmailBison inboxes to Supabase (batch upsert)
  *   GET  /health                 — Health check
  */
 
@@ -43,6 +44,7 @@ import { runCellEnrich } from './jobs/gtm-cell-enrich.ts';
 import { runCampaignCreate } from './jobs/eb-campaign-create.ts';
 import { runPurchaseDomain } from './jobs/namecheap-purchase-domain.ts';
 import { runSetNameservers } from './jobs/namecheap-set-nameservers.ts';
+import { runSyncInboxes } from './jobs/sync-inboxes.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3000');
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
@@ -449,6 +451,18 @@ const server = Bun.serve({
 
       console.log(`[namecheap-set-ns] Start — domain=${body.domain_id ?? body.domain}`);
       const result = await runSetNameservers(body);
+      return Response.json(result);
+    }
+
+    // Sync EmailBison Inboxes — batch upsert email_inboxes from EmailBison API
+    if (req.method === 'POST' && url.pathname === '/sync/inboxes') {
+      const secret = req.headers.get('x-webhook-secret');
+      if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      console.log('[sync/inboxes] Start — syncing EmailBison inboxes to Supabase');
+      const result = await runSyncInboxes();
       return Response.json(result);
     }
 
